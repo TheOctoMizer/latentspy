@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "AAI-590 LatentSpy Package"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "torch>=2.10.0",
+]
 
 [project.scripts]
 latentspy = "LatentSpy.main:main"
