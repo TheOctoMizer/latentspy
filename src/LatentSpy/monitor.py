@@ -21,6 +21,10 @@ class LatentMonitor:
             return "attn" in name.lower() or "mlp" in name.lower()
         return name in self.layers
 
+    def all_available_layers(self):
+        all_layers = [name for name, _ in self.model.named_modules()]
+        return all_layers
+
     def compute(self):
         results = {}
         for name, act in self.activations.items():
