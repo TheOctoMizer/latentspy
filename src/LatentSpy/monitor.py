@@ -11,7 +11,10 @@ class LatentMonitor:
         self.metrics = metrics or ["activation_norm"]
         self.activations = {}
         self.handles = []
-    
+
+    def __repr__(self):
+        return f"LatentMonitor({self.model}, {self.layers}, {self.metrics}, {self.activations}, {self.handles})"
+
     def attach(self):
         target_layers = [name for name, _ in self.model.named_modules() if self._should_track(name)]
         self.handles = register_hooks(self.model, target_layers, self.activations)
