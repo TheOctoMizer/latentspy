@@ -6,7 +6,7 @@ class MetricStorage:
         self.step = 0
     
     def update(self,results):
-        for layer_name, metrics in results.item():
+        for layer_name, metrics in results.items():
             for metric_name, value in metrics.items():
                 self.history[layer_name][metric_name].append(value)
         self.step += 1
