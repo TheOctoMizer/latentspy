@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .metrics.activation_norm import activation_norm
+from . import metrics
 from .hooks import register_hooks
 from .storage import store
 
@@ -32,8 +32,12 @@ class LatentMonitor:
         results = {}
         for name, act in self.activations.items():
             results[name] = {}
-            if "activation_norm" in self.metrics:
-                results[name]["activation_norm"] = activation_norm(act)
+            for metric_name in self.metrics:
+                metric_fn = getattr(metrics, metric_name, None)
+                if metric_fn:
+                    results[name][metric_name] = metric_fn(act)
+                else:
+                    print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
         return results
 
     def log(self):
