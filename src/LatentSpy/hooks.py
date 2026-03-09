@@ -1,12 +1,23 @@
 import torch
 
 def register_hooks(model, layer_names, activations_dict):
-    """Register forward hooks to capture activations for specified layers."""
+    """
+    Register forward hooks to capture activations for specified layers.
+    
+    Args:
+        model (nn.Module): The model to register hooks to.
+        layer_names (list): List of layer names to register hooks to.
+        activations_dict (dict): Dictionary to store activations.
+    
+    Returns:
+        list: List of hook handles.
+    """
     handles = []
     
     def get_hook(name):
         def hook(module, input, output):
-            activations_dict[name] = output.detach().cpu()
+            actual_output = output[0] if isinstance(output, (tuple, list)) else output
+            activations_dict[name] = actual_output.detach().cpu()
         return hook
 
     for name, module in model.named_modules():
