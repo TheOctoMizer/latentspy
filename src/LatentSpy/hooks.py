@@ -16,8 +16,9 @@ def register_hooks(model, layer_names, activations_dict):
     
     def get_hook(name):
         def hook(module, input, output):
-            actual_output = output[0] if isinstance(output, (tuple, list)) else output
-            activations_dict[name] = actual_output.detach().cpu()
+            if activations_dict.get("__enabled__", True):
+                actual_output = output[0] if isinstance(output, (tuple, list)) else output
+                activations_dict[name] = actual_output.detach()
         return hook
 
     for name, module in model.named_modules():
