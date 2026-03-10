@@ -19,8 +19,8 @@ def watch(
         model (nn.Module): The PyTorch model to monitor.
         layers (Union[str, List[str]]): Either "auto" to detect standard layers (MLP, Attention)
             or a list of specific layer names to track.
-        metrics (Optional[List[str]]): A list of metric names to compute (e.g., ["activation_norm"]).
-            Defaults to ["activation_norm"] if None.
+        metrics (Optional[List[str]]): Metrics to compute. Use `ls.Metric` constants 
+            (e.g., `[ls.Metric.ACTIVATION_NORM]`). Defaults to `[ls.Metric.ACTIVATION_NORM]`.
         sample_interval (int): Only capture activations every N steps.
         distributed (bool): If True, synchronize and average metrics across all GPUs.
             
