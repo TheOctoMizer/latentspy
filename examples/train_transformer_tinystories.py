@@ -38,7 +38,8 @@ monitor = ls.watch(
     metrics=[
         ls.Metric.ACTIVATION_NORM,
         ls.Metric.EFFECTIVE_RANK,
-        ls.Metric.COSINE_SIMILARITY
+        ls.Metric.COSINE_SIMILARITY,
+        ls.Metric.PATCHINESS
     ]
 )
 
@@ -78,20 +79,49 @@ for step in range(1, num_steps + 1):
     optimizer.step()
 
     results = monitor.log()
-    
+
     print(f"Step {step}/{num_steps} | Loss: {loss.item():.4f}")
     
     if step % 2 == 0:
-        print(f"  [LatentSpy] Layer Stats (sampled):")
+        print(f"  [LatentSpy] Training Stability Metrics:")
         if results:
-            first_layer = list(results.keys())[0]
-            metrics = results[first_layer]
-            print(f"    Layer: {first_layer}")
-            for m_name, m_val in metrics.items():
-                print(f"      {m_name}: {m_val:.4f}")
+            # Show stats for a specific layer (e.g., first attention layer)
+            layer_name = list(results.keys())[0]
+            m = results[layer_name]
+            print(f"    Layer: {layer_name}")
+            print(f"      Norm: {m.get('activation_norm', 0):.2f}")
+            print(f"      Rank: {m.get('effective_rank', 0):.2f}")
+            print(f"      CosSim: {m.get('cosine_similarity', 0):.2f}")
+            print(f"      Patchiness: {m.get('patchiness', 0):.2f} (lower is usually more stable)")
 
 print("\n--- Training Finished ---")
 
+# --- Stability Report ---
+print("\n" + "="*40)
+print("FINAL TRAINING STABILITY REPORT")
+print("="*40)
+
+# We can perform a deeper analysis on the last step's activations
+results = monitor.log()
+if results:
+    for layer_name, metrics in results.items():
+        patchiness_val = metrics.get('patchiness', 0)
+        rank_val = metrics.get('effective_rank', 0)
+        
+        print(f"\nLayer: {layer_name}")
+        print(f"  Final Patchiness: {patchiness_val:.4f}")
+        print(f"  Final Effective Rank: {rank_val:.4f}")
+        
+        if patchiness_val > 1.5:
+             print("  [Assessment] High patchiness detected. Potential representation collapse.")
+        elif patchiness_val < 0.1:
+             print("  [Assessment] Very low patchiness. Latent space is highly uniform.")
+        else:
+             print("  [Assessment] Normal patchiness. Representation is well-distributed.")
+
+print("-" * 40)
+
+# Cleanup
 monitor.remove()
 print("LatentSpy monitor removed.")
 

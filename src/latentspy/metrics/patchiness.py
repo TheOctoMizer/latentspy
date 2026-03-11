@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import faiss
 from .activation_utils import prepare_activations_for_faiss, validate_activations_format
+from .clustering import quantize_latent_space, get_cluster_statistics
 
 def patchiness(activations: torch.Tensor, k: int = 256) -> float:
     """
