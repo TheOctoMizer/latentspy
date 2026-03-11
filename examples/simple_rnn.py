@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import latentspy as ls
 
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
+print(f'Using device: {device}')
+
 class SimpleRNNModel(nn.Module):
     def __init__(self, vocab_size=50, embedding_dim=32, hidden_dim=64):
         super().__init__()
