@@ -18,6 +18,10 @@ dependencies = [
     "uvicorn>=0.41.0",
 ]
 
+[project.optional-dependencies]
+cuda = ["faiss-gpu>=1.7.2; python_version < '3.11'"]
+gpu = ["faiss-gpu>=1.7.2; python_version < '3.11'"]
+
 [project.scripts]
 latentspy = "latentspy.main:main"
 
