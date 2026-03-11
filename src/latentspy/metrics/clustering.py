@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import faiss
 from typing import Tuple, Dict, Any
+from .density import calculate_cell_densities, analyze_density_distribution
 
 
 def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int = 20) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
@@ -79,27 +80,19 @@ def get_cluster_statistics(cluster_labels: np.ndarray, k: int = 256) -> Dict[str
         k (int): Total number of clusters expected
     
     Returns:
-        Dict[str, Any]: Statistics about cluster distribution
+        Dict[str, Any]: Statistics about cluster distribution and densities
     """
-    cluster_counts = np.bincount(cluster_labels, minlength=k)
-    
-    total_points = len(cluster_labels)
-    non_empty_clusters = np.count_nonzero(cluster_counts)
+    cell_densities, density_info = calculate_cell_densities(cluster_labels, k)
 
+    density_analysis = analyze_density_distribution(cell_densities)
+
+    cluster_densities = cell_densities.astype('float32') / cell_densities.sum()
+    
     stats = {
-        'total_points': total_points,
-        'k': k,
-        'non_empty_clusters': non_empty_clusters,
-        'empty_clusters': k - non_empty_clusters,
-        'cluster_counts': cluster_counts,
-        'cluster_densities': cluster_counts.astype('float32') / total_points,
-        'mean_cluster_size': float(cluster_counts.mean()),
-        'std_cluster_size': float(cluster_counts.std()),
-        'min_cluster_size': int(cluster_counts.min()),
-        'max_cluster_size': int(cluster_counts.max()),
-        'most_populated_cluster': int(cluster_counts.argmax()),
-        'least_populated_cluster': int(cluster_counts.argmin()) if non_empty_clusters > 0 else None,
-        'entropy': float(-np.sum((cluster_counts / total_points) * np.log(cluster_counts / total_points + 1e-10)))
+        'cluster_counts': cell_densities,
+        'cluster_densities': cluster_densities,
+        'density_info': density_info,
+        'density_analysis': density_analysis
     }
     
     return stats
