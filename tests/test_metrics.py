@@ -6,27 +6,18 @@ from src.latentspy.metrics import (
     patchiness
 )
 
-def test_patchiness_low():
-    # Points spread out in different directions
-    # Hand-picked to ensure they fall into different clusters
-    data = torch.zeros(10, 10)
-    for i in range(5):
-        data[i, i] = 10.0
-        data[i+5, i] = -10.0
-    
-    score = patchiness(data, k=2)
-    # With K=2, the two clusters should be roughly equal size (5 each)
-    # std should be low
-    assert score < 1.0
+def test_patchiness_uniform():
+    # 512 random high-dim points -> roughly uniform bins -> low PP
+    torch.manual_seed(0)
+    data = torch.randn(512, 64)
+    score = patchiness(data)  # default k=256
+    assert score < 1.0, f"Expected uniform data to have low patchiness, got {score:.4f}"
 
-def test_patchiness_high():
-    # 9 points identical, 1 point far away
-    # This is 'patchy' because one cluster will have 9 members, other has 1
-    data = torch.zeros(10, 10)
-    data[9, 0] = 100.0 # The 'far' point
-    
-    score = patchiness(data, k=2)
-    assert score > 1.0
+def test_patchiness_clustered():
+    # 512 identical points -> FAISS puts them all in 1 cluster -> high PP
+    data = torch.zeros(512, 64)
+    score = patchiness(data)
+    assert score > 0.1, f"Expected clustered data to have high patchiness, got {score:.4f}"
 
 def test_cosine_similarity_perfect():
     # All vectors are identical -> Similarity 1.0

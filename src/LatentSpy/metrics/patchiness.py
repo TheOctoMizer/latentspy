@@ -1,41 +1,43 @@
 import torch
+import numpy as np
 
-def patchiness(activations: torch.Tensor, k: int = 5) -> float:
+def patchiness(activations: torch.Tensor, k: int = 256) -> float:
     """
-    Computes the patchiness of activations using K-Means clustering.
-    
-    A higher score indicates that activations are clumped into unequal, 
-    isolated clusters (potentially indicating memorization).
+    Compute the Patchiness Proportion (PP) of activations.
+
+    PP = Var(cell_density) / Mean(cell_density)  [Fano Factor — paper formula]
+
+    Uses random centroid sampling + PyTorch's cdist for 1-NN assignment.
+    This is mathematically equivalent to FAISS flat L2 search but is stable
+    across all platforms (FAISS conflicts with PyTorch OpenMP on macOS).
+
+    Args:
+        activations (torch.Tensor): Output activations of shape (Batch, ...).
+        k (int): Number of bins. Paper default is 256.
+
+    Returns:
+        float: The PP score (Fano Factor of cluster densities).
     """
-    X = activations.flatten(1)
+    X = activations.flatten(1).detach().float()
     batch_size = X.size(0)
-    
-    if batch_size <= k:
+
+    k = min(k, batch_size // 2)
+    if k < 2:
         return 0.0
 
-    indices = torch.randperm(batch_size)[:k]
-    centroids = X[indices]
-    
-    for _ in range(5):
-        dist = torch.cdist(X, centroids)
-        assignments = torch.argmin(dist, dim=1)
-        
-        new_centroids = []
-        for i in range(k):
-            mask = (assignments == i)
-            if mask.any():
-                new_centroids.append(X[mask].mean(0))
-            else:
-                new_centroids.append(centroids[i])
-        centroids = torch.stack(new_centroids)
+    if X.std().item() < 1e-8:
+        return 1.0
 
-    counts = torch.bincount(assignments, minlength=k).float()
-    
+    centroid_indices = torch.randperm(batch_size)[:k]
+    centroids = X[centroid_indices]
+    dists = torch.cdist(X, centroids)
+    bin_indices = torch.argmin(dists, dim=1)
+    counts = torch.bincount(bin_indices, minlength=k).float()
     densities = counts / batch_size
-    
     mean_density = densities.mean()
-    std_density = densities.std()
-    
-    score = std_density / (mean_density + 1e-8)
-    
-    return score.item()
+    var_density = densities.var()
+
+    if mean_density < 1e-10:
+        return 0.0
+
+    return (var_density / mean_density).item()

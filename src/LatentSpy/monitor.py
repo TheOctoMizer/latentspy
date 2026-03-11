@@ -13,6 +13,8 @@ class LatentMonitor:
         self.distributed = distributed
         self.global_step = 0
         self.activations = {"__enabled__": False}
+        self.val_activations = {"__enabled__": False}
+        self.in_val_mode = False
         self.handles = []
         self._last_results = {}
 
@@ -40,7 +42,9 @@ class LatentMonitor:
 
     def attach(self):
         target_layers = [name for name, _ in self.model.named_modules() if self._should_track(name)]
-        self.handles = register_hooks(self.model, target_layers, self.activations)
+        self.handles = register_hooks(
+            self.model, target_layers, self.activations, val_dict=self.val_activations
+        )
 
     def _should_track(self, name):
         if self.layers == "auto":
@@ -89,6 +93,48 @@ class LatentMonitor:
         enabled = self.activations.get("__enabled__", True)
         self.activations.clear()
         self.activations["__enabled__"] = enabled
+
+    # ------------------------------------------------------------------ #
+    # Validation-mode API (for research-accurate patchiness measurement)  #
+    # ------------------------------------------------------------------ #
+
+    def start_val(self):
+        """Enter validation mode. Hooks will now accumulate activations across
+        multiple forward passes into a separate buffer. Call before your val loop."""
+        self.in_val_mode = True
+        # Clear any previous val buffer, then enable routing
+        self.val_activations.clear()
+        self.val_activations["__enabled__"] = True
+        # Disable training capture so the two buffers don't mix
+        self.activations["__enabled__"] = False
+
+    def end_val(self):
+        """Exit validation mode and disable val routing. Call after your val loop."""
+        self.in_val_mode = False
+        self.val_activations["__enabled__"] = False
+
+    def log_val(self):
+        """Compute metrics over the full accumulated validation buffer and return results.
+        Automatically clears the val buffer afterwards to free memory."""
+        results = {}
+        for name, act in self.val_activations.items():
+            if name == "__enabled__":
+                continue
+            results[name] = {}
+            for metric_name in self.metrics:
+                metric_fn = getattr(metrics, metric_name, None)
+                if metric_fn:
+                    results[name][metric_name] = metric_fn(act)
+                else:
+                    print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
+
+        if results:
+            store.update(results, step=self.global_step)
+
+        # Clear the buffer to free memory
+        self.val_activations.clear()
+        self.val_activations["__enabled__"] = False
+        return results
 
     def remove(self):
         for h in self.handles:
