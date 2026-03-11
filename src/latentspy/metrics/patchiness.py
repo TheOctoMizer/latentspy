@@ -72,36 +72,10 @@ def cluster_activations(activations_np: np.ndarray, k: int, index: faiss.Index) 
     return centroids, bin_indices
 
 def _patchiness_faiss(activations_np: np.ndarray, k: int) -> float:
-    """FAISS-based clustering implementation."""
-    hidden_dim = activations_np.shape[1]
-    
-    if torch.cuda.is_available() and hasattr(faiss, 'StandardGpuResources'):
-        # CUDA Implementation
-        try:
-            res = faiss.StandardGpuResources()
-            index = faiss.IndexFlatL2(hidden_dim)
-            gpu_index = faiss.index_cpu_to_gpu(res, 0, index)
-            gpu_index.add(activations_np)
-            centroids, bin_indices = cluster_activations(activations_np, k, gpu_index)
-
-        except Exception:
-            index = faiss.IndexFlatL2(hidden_dim)
-            index.add(activations_np)
-
-            kmeans = faiss.Kmeans(hidden_dim, k, niter=20, verbose=False)
-            kmeans.train(activations_np)
-            centroids = kmeans.centroids
-
-            D, I = index.search(activations_np, 1)
-            bin_indices = I.flatten()
-    else:
-        # CPU-only implementation
-        index = faiss.IndexFlatL2(hidden_dim)
-        index.add(activations_np)
-        centroids, bin_indices = cluster_activations(activations_np, k, index)
-    
-    counts = np.bincount(bin_indices, minlength=k).astype('float32')
-    densities = counts / activations_np.shape[0]
+    """FAISS-based clustering implementation using the dedicated clustering function."""
+    cluster_labels, centroids, clustering_info = quantize_latent_space(activations_np, k)
+    cluster_stats = get_cluster_statistics(cluster_labels, k)
+    densities = cluster_stats['cluster_densities']
     mean_density = densities.mean()
     var_density = densities.var()
     
@@ -114,10 +88,10 @@ def _patchiness_faiss(activations_np: np.ndarray, k: int) -> float:
 def _patchiness_pytorch(X: torch.Tensor, k: int) -> float:
     """PyTorch fallback implementation."""
     batch_size = X.size(0)
-
+    
     centroid_indices = torch.randperm(batch_size)[:k]
     centroids = X[centroid_indices]
-
+    
     dists = torch.cdist(X, centroids)
     bin_indices = torch.argmin(dists, dim=1)
     counts = torch.bincount(bin_indices, minlength=k).float()
