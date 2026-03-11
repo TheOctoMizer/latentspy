@@ -16,6 +16,12 @@ def patchiness(activations: torch.Tensor, k: int = 256) -> float:
     Returns:
         float: The PP score (Fano Factor of cluster densities).
     """
+    # Auto-adjust k based on available data to prevent FAISS warnings
+    if hasattr(activations, 'shape'):
+        total_points = activations.flatten(0, -2).shape[0] if activations.dim() > 2 else activations.shape[0]
+        max_k = total_points // 39  # FAISS heuristic: ~39 points per cluster minimum
+        k = min(k, max_k, total_points // 2)  # Also ensure k <= total_points // 2
+        k = max(k, 2)  # Minimum 2 clusters
     try:
         activations_np, hidden_dim = prepare_activations_for_faiss(activations)
         validate_activations_format(activations_np)
