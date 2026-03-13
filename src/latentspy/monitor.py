@@ -5,11 +5,12 @@ from .hooks import register_hooks
 from .storage import store
 
 class LatentMonitor:
-    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False):
+    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None):
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
         self.sample_interval = sample_interval
+        self.val_interval = val_interval
         self.distributed = distributed
         self.global_step = 0
         self.activations = {"__enabled__": False}
@@ -17,6 +18,7 @@ class LatentMonitor:
         self.in_val_mode = False
         self.handles = []
         self._last_results = {}
+        self._last_val_results = {}
 
     def __repr__(self):
         status = "ENABLED" if self.activations["__enabled__"] else "IDLE"
@@ -31,6 +33,40 @@ class LatentMonitor:
         self.activations["__enabled__"] = should_record
         
         self.global_step += 1
+
+    def should_run_validation(self):
+        """Check if validation-based PP should be computed at this step."""
+        if self.val_interval is None:
+            return False
+        return self.global_step % self.val_interval == 0
+
+    def run_validation_pp(self, val_batch):
+        """
+        Run validation-based PP computation on a provided validation batch.
+        
+        Args:
+            val_batch: A batch of validation data (same format as training batch)
+            
+        Returns:
+            dict: PP metrics for each tracked layer
+        """
+        if not self.should_run_validation():
+            return {}
+
+        self.start_val()
+        
+        with torch.no_grad():
+            if isinstance(val_batch, dict):
+                input_ids = val_batch.get("input_ids")
+                attention_mask = val_batch.get("attention_mask")
+                if input_ids is not None:
+                    self.model(input_ids=input_ids, attention_mask=attention_mask)
+            else:
+                self.model(val_batch)
+        
+        val_results = self.log_val()
+        self._last_val_results = val_results
+        return val_results
 
     def enable(self):
         """Enable activation gathering."""
@@ -87,25 +123,26 @@ class LatentMonitor:
                 self._last_results = results
                 self.clear() 
         
-        return self._last_results
+        combined_results = self._last_results.copy()
+        if self._last_val_results:
+            for layer_name, metrics in self._last_val_results.items():
+                val_layer_name = f"val_{layer_name}"
+                combined_results[val_layer_name] = metrics
+                
+        return combined_results
 
     def clear(self):
         enabled = self.activations.get("__enabled__", True)
         self.activations.clear()
         self.activations["__enabled__"] = enabled
 
-    # ------------------------------------------------------------------ #
-    # Validation-mode API (for research-accurate patchiness measurement)  #
-    # ------------------------------------------------------------------ #
 
     def start_val(self):
         """Enter validation mode. Hooks will now accumulate activations across
         multiple forward passes into a separate buffer. Call before your val loop."""
         self.in_val_mode = True
-        # Clear any previous val buffer, then enable routing
         self.val_activations.clear()
         self.val_activations["__enabled__"] = True
-        # Disable training capture so the two buffers don't mix
         self.activations["__enabled__"] = False
 
     def end_val(self):
@@ -131,7 +168,6 @@ class LatentMonitor:
         if results:
             store.update(results, step=self.global_step)
 
-        # Clear the buffer to free memory
         self.val_activations.clear()
         self.val_activations["__enabled__"] = False
         return results

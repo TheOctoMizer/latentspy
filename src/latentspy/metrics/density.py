@@ -40,6 +40,7 @@ def calculate_cell_densities(cluster_labels: np.ndarray, k: int = 256) -> Tuple[
         'non_empty_clusters': non_empty_clusters,
         'empty_clusters': empty_clusters,
         'mean_density': float(cell_densities.mean()),
+        'variance_density': float(cell_densities.var()),
         'std_density': float(cell_densities.std()),
         'min_density': int(cell_densities.min()),
         'max_density': int(cell_densities.max()),
