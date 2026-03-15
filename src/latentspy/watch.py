@@ -8,7 +8,8 @@ def watch(
     metrics: Optional[List[str]] = None,
     sample_interval: int = 1,
     distributed: bool = False,
-    val_interval: int = None
+    val_interval: int = None,
+    experiment_name: str = None
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -25,6 +26,7 @@ def watch(
         sample_interval (int): Only capture activations every N steps.
         distributed (bool): If True, synchronize and average metrics across all GPUs.
         val_interval (int): Compute validation-based PP every N steps. If None, disabled.
+        experiment_name (str): Name for experiment tracking in storage. If None, auto-generated.
             
     Returns:
         LatentMonitor: An active monitor instance. Use monitor.log() to record metrics.
@@ -35,7 +37,8 @@ def watch(
         metrics=metrics, 
         sample_interval=sample_interval, 
         distributed=distributed,
-        val_interval=val_interval
+        val_interval=val_interval,
+        experiment_name=experiment_name
     )
     monitor.attach()
     return monitor

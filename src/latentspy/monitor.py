@@ -5,13 +5,14 @@ from .hooks import register_hooks
 from .storage import store
 
 class LatentMonitor:
-    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None):
+    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None):
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
         self.sample_interval = sample_interval
         self.val_interval = val_interval
         self.distributed = distributed
+        self.experiment_name = experiment_name
         self.global_step = 0
         self.activations = {"__enabled__": False}
         self.val_activations = {"__enabled__": False}
@@ -19,6 +20,10 @@ class LatentMonitor:
         self.handles = []
         self._last_results = {}
         self._last_val_results = {}
+        
+        # Initialize enhanced storage
+        from .storage import MetricStorage
+        self.storage = MetricStorage(experiment_name) if experiment_name else store
 
     def __repr__(self):
         status = "ENABLED" if self.activations["__enabled__"] else "IDLE"
@@ -119,12 +124,14 @@ class LatentMonitor:
         if self.activations.get("__enabled__", False):
             results = self.compute()
             if results:
-                store.update(results, step=self.global_step)
+                self.storage.update(results, step=self.global_step, is_validation=False)
                 self._last_results = results
                 self.clear() 
         
+        # Return combined results: training + validation (if available)
         combined_results = self._last_results.copy()
         if self._last_val_results:
+            # Add validation results with 'val_' prefix to distinguish from training
             for layer_name, metrics in self._last_val_results.items():
                 val_layer_name = f"val_{layer_name}"
                 combined_results[val_layer_name] = metrics
@@ -166,8 +173,9 @@ class LatentMonitor:
                     print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
 
         if results:
-            store.update(results, step=self.global_step)
+            self.storage.update(results, step=self.global_step, is_validation=True)
 
+        # Clear the buffer to free memory
         self.val_activations.clear()
         self.val_activations["__enabled__"] = False
         return results
