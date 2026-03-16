@@ -1,3 +1,7 @@
+import os
+import sys
+import gc
+
 # Set environment before any other imports
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 os.environ["OMP_NUM_THREADS"] = "1"
