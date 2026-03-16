@@ -96,7 +96,6 @@ def run_experiment():
     train_iterator = get_batches(train_dataset, tokenizer, batch_size=BATCH_SIZE)
     val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
 
-    print(f"\n--- Starting Healthy Training (Zero-Noise) ---")
     model.train()
 
     loss_history = []
