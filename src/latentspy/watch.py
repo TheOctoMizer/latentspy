@@ -9,27 +9,25 @@ def watch(
     sample_interval: int = 1,
     distributed: bool = False,
     val_interval: int = None,
-    experiment_name: str = None
+    experiment_name: str = None,
+    log_type: str = "db"
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
-    
-    This is the primary entry point for LatentSpy. It initializes a LatentMonitor,
-    attaches the necessary forward hooks, and returns the monitor instance.
     
     Args:
         model (nn.Module): The PyTorch model to monitor.
         layers (Union[str, List[str]]): Either "auto" to detect standard layers (MLP, Attention)
             or a list of specific layer names to track.
-        metrics (Optional[List[str]]): Metrics to compute. Use `ls.Metric` constants 
-            (e.g., `[ls.Metric.ACTIVATION_NORM]`). Defaults to `[ls.Metric.ACTIVATION_NORM]`.
+        metrics (Optional[List[str]]): Metrics to compute. Use `ls.Metric` constants.
         sample_interval (int): Only capture activations every N steps.
         distributed (bool): If True, synchronize and average metrics across all GPUs.
         val_interval (int): Compute validation-based PP every N steps. If None, disabled.
-        experiment_name (str): Name for experiment tracking in storage. If None, auto-generated.
+        experiment_name (str): Name for experiment tracking.
+        log_type (str): Storage format ("db", "json", "csv", "none"). Defaults to "db".
             
     Returns:
-        LatentMonitor: An active monitor instance. Use monitor.log() to record metrics.
+        LatentMonitor: An active monitor instance.
     """
     monitor = LatentMonitor(
         model, 
@@ -38,7 +36,8 @@ def watch(
         sample_interval=sample_interval, 
         distributed=distributed,
         val_interval=val_interval,
-        experiment_name=experiment_name
+        experiment_name=experiment_name,
+        log_type=log_type
     )
     monitor.attach()
     return monitor

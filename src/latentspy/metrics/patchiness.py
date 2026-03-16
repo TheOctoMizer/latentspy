@@ -90,9 +90,17 @@ def _patchiness_faiss(activations_np: np.ndarray, k: int) -> float:
 
     m = mean_density
     V = var_density
-    pp = (m + (V/m - 1)) / m
     
-    return float(pp)
+    # Fano Factor (V/m) normalized for densities
+    # For counts c = d * N, V_c = V * N^2, m_c = m * N.
+    # F = V_c / m_c = (V * N^2) / (m * N) = (V/m) * N.
+    # However, to keep it independent of N (batch size), we use V/m^2 which is 0 for uniform.
+    if m < 1e-10:
+        return 0.0
+        
+    # Relative Variance (squared coefficient of variation)
+    # 0 for uniform, k-1 for totally collapsed.
+    return float(V / (m**2 + 1e-10))
 
 
 def _patchiness_pytorch(X: torch.Tensor, k: int) -> float:
@@ -114,6 +122,9 @@ def _patchiness_pytorch(X: torch.Tensor, k: int) -> float:
     
     m = mean_density
     V = var_density
-    pp = (m + (V/m - 1)) / m
     
-    return float(pp)
+    if m < 1e-10:
+        return 0.0
+    
+    # Relative Variance
+    return float(V / (m**2 + 1e-10))
