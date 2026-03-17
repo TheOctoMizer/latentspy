@@ -76,7 +76,6 @@ def run_experiment():
     )
     model = GPT2LMHeadModel(config).to(DEVICE)
 
-    # ZERO-NOISE: Use JSON logging to reduce terminal clutter
     monitor = ls.watch(
         model,
         layers='auto',
@@ -131,7 +130,6 @@ def run_experiment():
             monitor.log()
             loss_history.append(loss.item())
             
-            # Zero-Noise: Only progress every 100 steps
             if step % 100 == 0 or step == 1:
                 print(f"Step {step:4d}/{NUM_STEPS} | Loss: {loss.item():.4f}")
 
