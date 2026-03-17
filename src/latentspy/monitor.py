@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
+import multiprocessing
 from . import metrics
 from .hooks import register_hooks
 from .storage import store
 
 class LatentMonitor:
-    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db", alert_interval: int = 50):
+    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db", alert_interval: int = 50, dashboard: bool = False, dashboard_port: int = 8000):
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
@@ -15,6 +16,14 @@ class LatentMonitor:
         self.experiment_name = experiment_name
         self.log_type = log_type
         self.alert_interval = alert_interval
+        self.dashboard = dashboard
+        self.dashboard_port = dashboard_port
+        self.server_process = None
+        
+        # Start dashboard server if requested
+        if self.dashboard:
+            self._start_dashboard()
+        
         self.global_step = 0
         self.activations = {"__enabled__": False}
         self.val_activations = {"__enabled__": False}
@@ -232,7 +241,24 @@ class LatentMonitor:
         self.val_activations["__enabled__"] = False
         return results
 
+    def _start_dashboard(self):
+        """Start the dashboard server in a background process."""
+        from .server import start_server
+        self.server_process = multiprocessing.Process(
+            target=start_server,
+            kwargs={"host": "0.0.0.0", "port": self.dashboard_port},
+            daemon=True
+        )
+        self.server_process.start()
+        print(f"LatentSpy Dashboard started at http://localhost:{self.dashboard_port}")
+
     def remove(self):
+        if self.server_process and self.server_process.is_alive():
+            self.server_process.terminate()
+            self.server_process.join(timeout=1)
+            if self.server_process.is_alive():
+                self.server_process.kill()
+        
         for h in self.handles:
             h.remove()
         

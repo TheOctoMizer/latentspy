@@ -11,7 +11,9 @@ def watch(
     val_interval: int = None,
     experiment_name: str = None,
     log_type: str = "db",
-    alert_interval: int = 50
+    alert_interval: int = 50,
+    dashboard: bool = False,
+    dashboard_port: int = 8000
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -27,6 +29,8 @@ def watch(
         experiment_name (str): Name for experiment tracking.
         log_type (str): Storage format ("db", "json", "csv", "none"). Defaults to "db".
         alert_interval (int): Minimum steps between identical console warnings. Defaults to 50.
+        dashboard (bool): If True, start the real-time web dashboard in the background.
+        dashboard_port (int): Port to run the dashboard on. Defaults to 8000.
             
     Returns:
         LatentMonitor: An active monitor instance.
@@ -40,7 +44,9 @@ def watch(
         val_interval=val_interval,
         experiment_name=experiment_name,
         log_type=log_type,
-        alert_interval=alert_interval
+        alert_interval=alert_interval,
+        dashboard=dashboard,
+        dashboard_port=dashboard_port
     )
     monitor.attach()
     return monitor
