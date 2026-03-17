@@ -5,7 +5,7 @@ from .hooks import register_hooks
 from .storage import store
 
 class LatentMonitor:
-    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db"):
+    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db", alert_interval: int = 50):
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
@@ -14,6 +14,7 @@ class LatentMonitor:
         self.distributed = distributed
         self.experiment_name = experiment_name
         self.log_type = log_type
+        self.alert_interval = alert_interval
         self.global_step = 0
         self.activations = {"__enabled__": False}
         self.val_activations = {"__enabled__": False}
@@ -135,7 +136,7 @@ class LatentMonitor:
             
             # 2. Console warning (Rate limited)
             warn_key = f"{layer_name}_{msg}"
-            if warn_key not in self._health_states or (self.global_step - self._health_states[warn_key] > 50):
+            if warn_key not in self._health_states or (self.global_step - self._health_states[warn_key] >= self.alert_interval):
                 self._health_states[warn_key] = self.global_step
                 color = self.CLR_RED if level == "CRITICAL" else self.CLR_YEL
                 prefix = f"[{level}]"

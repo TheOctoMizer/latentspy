@@ -10,7 +10,8 @@ def watch(
     distributed: bool = False,
     val_interval: int = None,
     experiment_name: str = None,
-    log_type: str = "db"
+    log_type: str = "db",
+    alert_interval: int = 50
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -25,6 +26,7 @@ def watch(
         val_interval (int): Compute validation-based PP every N steps. If None, disabled.
         experiment_name (str): Name for experiment tracking.
         log_type (str): Storage format ("db", "json", "csv", "none"). Defaults to "db".
+        alert_interval (int): Minimum steps between identical console warnings. Defaults to 50.
             
     Returns:
         LatentMonitor: An active monitor instance.
@@ -37,7 +39,8 @@ def watch(
         distributed=distributed,
         val_interval=val_interval,
         experiment_name=experiment_name,
-        log_type=log_type
+        log_type=log_type,
+        alert_interval=alert_interval
     )
     monitor.attach()
     return monitor
