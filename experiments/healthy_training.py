@@ -84,7 +84,8 @@ def run_experiment():
         val_interval=VAL_INTERVAL,
         experiment_name=EXPERIMENT_NAME,
         log_type="db",
-        alert_interval=10
+        alert_interval=10,
+        dashboard=True
     )
 
     optimizer = torch.optim.AdamW(
