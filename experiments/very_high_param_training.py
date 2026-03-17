@@ -53,9 +53,9 @@ def run_experiment():
 
     print("\nLoading dataset...")
     try:
-        dataset = load_dataset("roneneldan/TinyStories", streaming=True, split="train")
-        train_dataset = dataset.take(10000)
-        val_dataset = dataset.skip(10000).take(2000)
+        dataset = load_dataset("roneneldan/TinyStories", streaming=False, split="train")
+        train_dataset = dataset.select(range(10000))
+        val_dataset = dataset.select(range(10000, 12000))
     except Exception as e:
         print(f"Error loading dataset: {e}")
         sys.exit(1)
@@ -139,9 +139,10 @@ def run_experiment():
             print(f"Final loss: {loss_history[-1]:.4f}")
             print(f"Loss improvement: {loss_history[0] - loss_history[-1]:.4f}")
 
-        # Explicitly release the iterators
         del train_iterator
         del val_iterator
+        if 'dataset' in locals():
+            del dataset
         gc.collect()
 
         print(f"\n--- Storage Analysis ---")
