@@ -36,14 +36,14 @@ def run_experiment():
     # HEALTHY BASLEINE HYPERPARAMETERS
     LEARNING_RATE = 1e-4
     BATCH_SIZE = 8
-    NUM_STEPS = 500
+    NUM_EPOCHS = 3
     VAL_INTERVAL = 50
-    SAMPLE_INTERVAL = 20
+    SAMPLE_INTERVAL = 5
 
     print(f"=== {EXPERIMENT_NAME} ===")
     print(f"Learning Rate: {LEARNING_RATE}")
     print(f"Batch Size: {BATCH_SIZE}")
-    print(f"Training Steps: {NUM_STEPS}")
+    print(f"Number of Epochs: {NUM_EPOCHS}")
     print(f"Validation Interval: {VAL_INTERVAL}")
 
     print("\nLoading dataset...")
@@ -83,7 +83,8 @@ def run_experiment():
         sample_interval=SAMPLE_INTERVAL,
         val_interval=VAL_INTERVAL,
         experiment_name=EXPERIMENT_NAME,
-        log_type="db"
+        log_type="db",
+        alert_interval=10
     )
 
     optimizer = torch.optim.AdamW(
@@ -96,36 +97,45 @@ def run_experiment():
     val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
 
     model.train()
-
     loss_history = []
+    global_step = 0
 
     try:
-        for step in range(1, NUM_STEPS + 1):
-            try:
-                batch = next(train_iterator)
-            except StopIteration:
-                break
-
-            input_ids = batch["input_ids"].to(DEVICE)
-            attention_mask = batch["attention_mask"].to(DEVICE)
-
-            monitor.step()
-            optimizer.zero_grad()
-            outputs = model(input_ids, attention_mask=attention_mask, labels=input_ids)
-            loss = outputs.loss
-            loss.backward()
-            optimizer.step()
-
-            if monitor.should_run_validation():
-                val_batch = next(val_iterator)
-                val_batch = {k: v.to(DEVICE) for k, v in val_batch.items()}
-                monitor.run_validation_pp(val_batch)
-
-            monitor.log()
-            loss_history.append(loss.item())
+        for epoch in range(1, NUM_EPOCHS + 1):
+            print(f"\n--- Epoch {epoch}/{NUM_EPOCHS} ---")
             
-            if step % 100 == 0 or step == 1:
-                print(f"Step {step:4d}/{NUM_STEPS} | Loss: {loss.item():.4f}")
+            # Shuffle the dataset and create a new iterator for each epoch
+            shuffled_dataset = train_dataset.shuffle(seed=42 + epoch)
+            train_iterator = get_batches(shuffled_dataset, tokenizer, batch_size=BATCH_SIZE)
+            
+            for step_in_epoch, batch in enumerate(train_iterator, 1):
+                input_ids = batch["input_ids"].to(DEVICE)
+                attention_mask = batch["attention_mask"].to(DEVICE)
+
+                global_step += 1
+                monitor.step()
+                optimizer.zero_grad()
+                outputs = model(input_ids, attention_mask=attention_mask, labels=input_ids)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+
+                if monitor.should_run_validation():
+                    try:
+                        val_batch = next(val_iterator)
+                    except StopIteration:
+                        # Reset val iterator if exhausted
+                        val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
+                        val_batch = next(val_iterator)
+                    
+                    val_batch = {k: v.to(DEVICE) for k, v in val_batch.items()}
+                    monitor.run_validation_pp(val_batch)
+
+                monitor.log()
+                loss_history.append(loss.item())
+                
+                if global_step % 100 == 0 or global_step == 1:
+                    print(f"Epoch {epoch} | Step {global_step:4d} | Loss: {loss.item():.4f}")
 
     finally:
         print(f"\n--- Training Completed ---")
