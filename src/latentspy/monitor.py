@@ -3,7 +3,7 @@ import torch.nn as nn
 import multiprocessing
 from . import metrics
 from .hooks import register_hooks
-from .storage import store
+from .storage import get_storage
 
 class LatentMonitor:
     def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db", alert_interval: int = 50, dashboard: bool = False, dashboard_port: int = 8000):
@@ -20,7 +20,6 @@ class LatentMonitor:
         self.dashboard_port = dashboard_port
         self.server_process = None
         
-        # Start dashboard server if requested
         if self.dashboard:
             self._start_dashboard()
         
@@ -32,19 +31,15 @@ class LatentMonitor:
         self._last_results = {}
         self._last_val_results = {}
         
-        # State for health warnings to avoid spam
-        self._health_states = {} # layer -> {metric: state}
+        self._health_states = {}
         self._warned_metrics = set()
         
-        # ANSI Colors
         self.CLR_RED = "\033[91m"
         self.CLR_YEL = "\033[93m"
         self.CLR_END = "\033[0m"
         self.CLR_BOLD = "\033[1m"
         
-        # Initialize enhanced storage
-        from .storage import MetricStorage
-        self.storage = MetricStorage(experiment_name, log_type=log_type) if experiment_name else store
+        self.storage = get_storage(experiment_name, log_type=log_type)
 
     def __repr__(self):
         status = "ENABLED" if self.activations["__enabled__"] else "IDLE"

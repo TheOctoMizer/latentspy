@@ -16,7 +16,6 @@ class MetricStorage:
         self.run_storage.mkdir(parents=True, exist_ok=True)
         self.run_database: Path = self.run_storage / "runs.db"
         
-        # Initialize streaming files if needed
         self.json_path = self.run_storage / f"{self.experiment_name}.json"
         self.csv_path = self.run_storage / f"{self.experiment_name}.csv"
         
@@ -28,7 +27,7 @@ class MetricStorage:
             with open(self.csv_path, 'w') as f:
                 f.write("step,layer,metric,value,is_validation,timestamp\n")
 
-        self.conn = sqlite3.connect(self.run_database)
+        self.conn = sqlite3.connect(self.run_database, timeout=5.0)
         self._init_database()
 
     def _init_database(self):
@@ -80,12 +79,25 @@ class MetricStorage:
         self._register_experiment()
 
     def _register_experiment(self):
-        """Register the current experiment in the database."""
+        """Register the current experiment in the database, updating the timestamp if it exists."""
         cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO experiments (name, metadata) VALUES (?, ?)",
-            (self.experiment_name, json.dumps({"created_at": datetime.now().isoformat()}))
-        )
+        timestamp = datetime.now().isoformat()
+        metadata = json.dumps({"created_at": timestamp})
+        
+        # Using a more compatible approach than ON CONFLICT if version is old
+        cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
+        res = cursor.fetchone()
+        
+        if res:
+            cursor.execute(
+                "UPDATE experiments SET created_at = ?, metadata = ? WHERE id = ?",
+                (timestamp, metadata, res[0])
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO experiments (name, created_at, metadata) VALUES (?, ?, ?)",
+                (self.experiment_name, timestamp, metadata)
+            )
         self.conn.commit()
 
     def log_alert(self, step: int, layer_name: str, level: str, message: str):
@@ -131,7 +143,7 @@ class MetricStorage:
 
                 # JSON Streaming
                 if self.log_type == "json":
-                    self._stream_json({"step": step, "layer": layer_name, "metric": metric_name, "value": val_f, "is_val": is_validation})
+                    self._stream_json({"step": step, "layer": layer_name, "metric": metric_name, "value": val_f, "is_validation": is_validation})
                 
                 # CSV Streaming
                 if self.log_type == "csv":
@@ -204,10 +216,14 @@ class MetricStorage:
             json.dump(data, f, indent=2)
         return str(output_path)
 
-    def __del__(self):
-        if hasattr(self, 'conn'):
-            self.conn.close()
 
-store = MetricStorage()
+_global_storage = None
+
+def get_storage(experiment_name: Optional[str] = None, log_type: str = "db") -> MetricStorage:
+    """Get or create the global storage instance."""
+    global _global_storage
+    if _global_storage is None:
+        _global_storage = MetricStorage(experiment_name, log_type)
+    return _global_storage
 
         
