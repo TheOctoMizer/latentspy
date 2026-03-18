@@ -90,7 +90,9 @@ def run_experiment():
         experiment_name=EXPERIMENT_NAME,
         log_type="db",
         alert_interval=10,
-        dashboard=True
+        dashboard=True,
+        metric_kwargs={"patchiness": {"k": 16}},
+        val_metric_kwargs={"patchiness": {"k": 256}}
     )
 
     optimizer = torch.optim.AdamW(
@@ -128,15 +130,19 @@ def run_experiment():
                 optimizer.step()
 
                 if monitor.should_run_validation():
-                    try:
-                        val_batch = next(val_iterator)
-                    except StopIteration:
-                        # Reset val iterator if exhausted
-                        val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
-                        val_batch = next(val_iterator)
+                    val_batches = []
+                    for _ in range(50):
+                        try:
+                            val_batch = next(val_iterator)
+                        except StopIteration:
+                            # Reset val iterator if exhausted
+                            val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
+                            val_batch = next(val_iterator)
+                        
+                        val_batch = {k: v.to(DEVICE) for k, v in val_batch.items()}
+                        val_batches.append(val_batch)
                     
-                    val_batch = {k: v.to(DEVICE) for k, v in val_batch.items()}
-                    monitor.run_validation_pp(val_batch)
+                    monitor.run_validation_pp(val_batches)
 
                 monitor.log()
                 loss_history.append(loss.item())

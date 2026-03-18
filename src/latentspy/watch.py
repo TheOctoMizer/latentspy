@@ -13,7 +13,9 @@ def watch(
     log_type: str = "db",
     alert_interval: int = 50,
     dashboard: bool = False,
-    dashboard_port: int = 8000
+    dashboard_port: int = 8000,
+    metric_kwargs=None,
+    val_metric_kwargs=None
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -46,7 +48,9 @@ def watch(
         log_type=log_type,
         alert_interval=alert_interval,
         dashboard=dashboard,
-        dashboard_port=dashboard_port
+        dashboard_port=dashboard_port,
+        metric_kwargs=metric_kwargs,
+        val_metric_kwargs=val_metric_kwargs
     )
     monitor.attach()
     return monitor

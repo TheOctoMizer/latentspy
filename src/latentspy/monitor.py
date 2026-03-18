@@ -6,7 +6,22 @@ from .hooks import register_hooks
 from .storage import get_storage
 
 class LatentMonitor:
-    def __init__(self, model: nn.Module, layers="auto", metrics=None, sample_interval: int = 1, distributed: bool = False, val_interval: int = None, experiment_name: str = None, log_type: str = "db", alert_interval: int = 50, dashboard: bool = False, dashboard_port: int = 8000):
+    def __init__(
+        self, 
+        model: nn.Module, 
+        layers="auto", 
+        metrics=None, 
+        sample_interval: int = 1, 
+        distributed: bool = False, 
+        val_interval: int = None, 
+        experiment_name: str = None, 
+        log_type: str = "db", 
+        alert_interval: int = 50, 
+        dashboard: bool = False, 
+        dashboard_port: int = 8000,
+        metric_kwargs=None,
+        val_metric_kwargs=None
+    ):
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
@@ -18,6 +33,8 @@ class LatentMonitor:
         self.alert_interval = alert_interval
         self.dashboard = dashboard
         self.dashboard_port = dashboard_port
+        self.metric_kwargs = metric_kwargs or {}
+        self.val_metric_kwargs = val_metric_kwargs or {}
         self.server_process = None
         
         if self.dashboard:
@@ -61,9 +78,9 @@ class LatentMonitor:
             return False
         return self.global_step % self.val_interval == 0
 
-    def run_validation_pp(self, val_batch):
+    def run_validation_pp(self, val_batches):
         """
-        Run validation-based PP computation on a provided validation batch.
+        Run validation-based PP computation on a provided validation batch or list of batches.
         """
         if not self.should_run_validation():
             return {}
@@ -71,13 +88,17 @@ class LatentMonitor:
         self.start_val()
         
         with torch.no_grad():
-            if isinstance(val_batch, dict):
-                input_ids = val_batch.get("input_ids")
-                attention_mask = val_batch.get("attention_mask")
-                if input_ids is not None:
-                    self.model(input_ids=input_ids, attention_mask=attention_mask)
-            else:
-                self.model(val_batch)
+            if isinstance(val_batches, dict):
+                val_batches = [val_batches]
+                
+            for val_batch in val_batches:
+                if isinstance(val_batch, dict):
+                    input_ids = val_batch.get("input_ids")
+                    attention_mask = val_batch.get("attention_mask")
+                    if input_ids is not None:
+                        self.model(input_ids=input_ids, attention_mask=attention_mask)
+                else:
+                    self.model(val_batch)
         
         val_results = self.log_val()
         self._last_val_results = val_results
@@ -158,7 +179,8 @@ class LatentMonitor:
             for metric_name in self.metrics:
                 metric_fn = getattr(metrics, metric_name, None)
                 if metric_fn:
-                    val = metric_fn(act)
+                    kwargs = self.metric_kwargs.get(metric_name, {})
+                    val = metric_fn(act, **kwargs)
 
                     if self.distributed and torch.distributed.is_initialized():
                         tensor_val = torch.tensor(val, device=act.device)
@@ -219,7 +241,8 @@ class LatentMonitor:
             for metric_name in self.metrics:
                 metric_fn = getattr(metrics, metric_name, None)
                 if metric_fn:
-                    results[name][metric_name] = metric_fn(act)
+                    kwargs = self.val_metric_kwargs.get(metric_name, self.metric_kwargs.get(metric_name, {}))
+                    results[name][metric_name] = metric_fn(act, **kwargs)
                 else:
                     if metric_name not in self._warned_metrics:
                         print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
