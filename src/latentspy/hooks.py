@@ -19,18 +19,13 @@ def register_hooks(model, layer_names, activations_dict, val_dict=None):
     def get_hook(name):
         def hook(module, input, output):
             actual_output = output[0] if isinstance(output, (tuple, list)) else output
-            tensor = actual_output.detach()
-            
-            # Val mode: accumulate into val buffer (cat along batch dim)
             if val_dict is not None and val_dict.get("__enabled__", False):
-                if name in val_dict:
-                    val_dict[name] = torch.cat([val_dict[name], tensor], dim=0)
-                else:
-                    val_dict[name] = tensor
-            # Training mode: standard single-pass capture
+                tensor = actual_output.detach().cpu()
+                if name not in val_dict:
+                    val_dict[name] = []
+                val_dict[name].append(tensor)
             elif activations_dict.get("__enabled__", True):
-                activations_dict[name] = tensor
-
+                activations_dict[name] = actual_output.detach()
         return hook
 
     for name, module in model.named_modules():

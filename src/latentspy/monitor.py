@@ -234,9 +234,10 @@ class LatentMonitor:
     def log_val(self):
         """Compute metrics over the full accumulated validation buffer."""
         results = {}
-        for name, act in self.val_activations.items():
+        for name, act_list in self.val_activations.items():
             if name == "__enabled__":
                 continue
+            act = torch.cat(act_list, dim=0)
             results[name] = {}
             for metric_name in self.metrics:
                 metric_fn = getattr(metrics, metric_name, None)
