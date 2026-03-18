@@ -2,13 +2,13 @@ import os
 import sys
 import gc
 
-# Set environment before any other imports
+# Set the environment before any other imports
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+
 
 import torch
 from transformers import GPT2Config, GPT2LMHeadModel, AutoTokenizer
@@ -29,11 +29,11 @@ def get_batches(ds, tokenizer, batch_size=4):
         return
 
 def run_experiment():
-    EXPERIMENT_NAME = "healthy_training_baseline"
+    EXPERIMENT_NAME: str = "healthy_training_baseline"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
     print(f"Using device: {DEVICE}")
 
-    # HEALTHY BASLEINE HYPERPARAMETERS
+    # HEALTHY BASELINE HYPERPARAMETERS
     LEARNING_RATE = 1e-4
     BATCH_SIZE = 8
     NUM_EPOCHS = 3
@@ -53,7 +53,7 @@ def run_experiment():
         val_dataset = dataset.select(range(10000, 12000))
     except Exception as e:
         print(f"Error loading dataset: {e}")
-        return
+        sys.exit(1)
 
     print("Initializing model...")
     model_name = "gpt2"
@@ -168,4 +168,3 @@ if __name__ == "__main__":
         run_experiment()
     finally:
         gc.collect()
-        print(f"\n=== Experiment Process Complete ===")

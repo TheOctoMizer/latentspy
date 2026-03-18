@@ -2,7 +2,7 @@ import os
 import sys
 import gc
 
-# Set environment before any other imports
+# Set the environment before any other imports
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -46,7 +46,7 @@ def run_experiment():
     SAMPLE_INTERVAL = 5
 
     print(f"=== {EXPERIMENT_NAME} ===")
-    print(f"Learning Rate: {LEARNING_RATE} (INTENTIONALLY HIGH)")
+    print(f"Learning Rate: {LEARNING_RATE}")
     print(f"Batch Size: {BATCH_SIZE}")
     print(f"Number of Epochs: {NUM_EPOCHS}")
     print(f"Validation Interval: {VAL_INTERVAL}")
@@ -88,7 +88,7 @@ def run_experiment():
         sample_interval=SAMPLE_INTERVAL,
         val_interval=VAL_INTERVAL,
         experiment_name=EXPERIMENT_NAME,
-        log_type="json",
+        log_type="db",
         alert_interval=10,
         dashboard=True
     )
@@ -170,13 +170,6 @@ def run_experiment():
         gc.collect()
 
 if __name__ == "__main__":
-    # Environment optimizations
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
-
     try:
         run_experiment()
     finally:
