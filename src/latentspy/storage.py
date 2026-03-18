@@ -16,7 +16,8 @@ class MetricStorage:
         self.run_storage.mkdir(parents=True, exist_ok=True)
         self.run_database: Path = self.run_storage / "runs.db"
         
-        self.json_path = self.run_storage / f"{self.experiment_name}.json"
+        # self.json_path = self.run_storage / f"{self.experiment_name}.json"
+        self.json_path = self.run_storage / f"{self.experiment_name}.jsonl"
         self.csv_path = self.run_storage / f"{self.experiment_name}.csv"
         
         if self.log_type == "json" and not self.json_path.exists():
@@ -154,17 +155,19 @@ class MetricStorage:
 
     def _stream_json(self, entry: Dict):
         """Append an entry to the JSON file by reading and rewriting (basic implementation)."""
-        try:
-            with open(self.json_path, 'r+') as f:
-                data = json.load(f)
-                if "metrics" not in data: data["metrics"] = []
-                data["metrics"].append(entry)
-                f.seek(0)
-                json.dump(data, f, indent=2)
-                f.truncate()
-        except (FileNotFoundError, json.JSONDecodeError):
-            with open(self.json_path, 'w') as f:
-                json.dump({"experiment": self.experiment_name, "metrics": [entry]}, f)
+        # try:
+        #     with open(self.json_path, 'r+') as f:
+        #         data = json.load(f)
+        #         if "metrics" not in data: data["metrics"] = []
+        #         data["metrics"].append(entry)
+        #         f.seek(0)
+        #         json.dump(data, f, indent=2)
+        #         f.truncate()
+        # except (FileNotFoundError, json.JSONDecodeError):
+        #     with open(self.json_path, 'w') as f:
+        #         json.dump({"experiment": self.experiment_name, "metrics": [entry]}, f)
+        with open(self.json_path, 'a') as f:
+            f.write(json.dumps(entry) + "\n")
 
     def get_history(self) -> Dict[str, Dict[str, list]]:
         return dict(self.history)
