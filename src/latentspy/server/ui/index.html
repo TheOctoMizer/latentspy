@@ -249,12 +249,37 @@
 
             <!-- Heatmap Tab -->
             <div id="heatmap-tab" class="tab-content hidden">
-                <div class="glass rounded-xl p-6">
-                    <h3 class="text-lg font-semibold mb-4">Layer-wise Metric Heatmap</h3>
-                    <div id="heatmapContainer" class="grid grid-cols-1 gap-4">
-                        <div class="text-center text-gray-400 py-8">
-                            <i data-lucide="grid" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>Heatmap visualization coming soon...</p>
+                <!-- Sub-tabs for heatmap type -->
+                <div class="flex space-x-2 mb-4">
+                    <button id="heatmapBtn3d" class="px-4 py-2 rounded-lg text-sm font-medium tab-active" onclick="dashboard.switchHeatmapMode('3d')">
+                        3D Latent Space
+                    </button>
+                    <button id="heatmapBtnGrid" class="px-4 py-2 rounded-lg glass text-sm font-medium" onclick="dashboard.switchHeatmapMode('grid')">
+                        Layer × Metric Grid
+                    </button>
+                </div>
+
+                <!-- 3D Scatter -->
+                <div id="heatmap-3d" class="glass rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-1">Latent Space Projection (PCA → 3D)</h3>
+                    <p class="text-sm text-gray-400 mb-4">Each point is an activation vector. Color = cluster ID. Rotate to explore cluster patchiness.</p>
+                    <div id="heatmapContainer" style="height: 520px;">
+                        <div class="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
+                            <i data-lucide="box" class="w-14 h-14"></i>
+                            <p class="text-base">Waiting for 3D projection data…</p>
+                            <p class="text-xs text-gray-500">Projections are computed when <code>patchiness</code> is in your metric list.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layer × Metric Grid -->
+                <div id="heatmap-grid" class="glass rounded-xl p-6 hidden">
+                    <h3 class="text-lg font-semibold mb-1">Layer × Metric Heatmap</h3>
+                    <p class="text-sm text-gray-400 mb-4">Each cell shows the latest value for a layer/metric pair. Darker = higher relative value.</p>
+                    <div id="heatmapGridContainer" style="height: 520px;">
+                        <div class="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
+                            <i data-lucide="grid" class="w-14 h-14"></i>
+                            <p class="text-base">Waiting for metric data…</p>
                         </div>
                     </div>
                 </div>
@@ -279,11 +304,14 @@
             <!-- Layers Tab -->
             <div id="layers-tab" class="tab-content hidden">
                 <div class="glass rounded-xl p-6">
-                    <h3 class="text-lg font-semibold mb-4">Layer Details</h3>
-                    <div id="layersList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="text-center text-gray-400 py-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold">Layer Metrics</h3>
+                        <span class="text-xs text-gray-400" id="layersUpdatedAt"></span>
+                    </div>
+                    <div id="layersList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <div class="text-center text-gray-400 py-8 col-span-3">
                             <i data-lucide="layers" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>Layer analysis coming soon...</p>
+                            <p>Waiting for layer data…</p>
                         </div>
                     </div>
                 </div>
@@ -299,6 +327,7 @@
                 this.currentExperimentId = null;
                 this.metrics = {};
                 this.projections = {};
+                this.heatmapMode = '3d';
                 this.alerts = [];
                 this.charts = {};
                 this.reconnectAttempts = 0;
@@ -558,72 +587,174 @@
                 }
             }
 
+            // --- Heatmap mode switcher ---
+            switchHeatmapMode(mode) {
+                this.heatmapMode = mode;
+                const is3d = mode === '3d';
+                document.getElementById('heatmap-3d').classList.toggle('hidden', !is3d);
+                document.getElementById('heatmap-grid').classList.toggle('hidden', is3d);
+                document.getElementById('heatmapBtn3d').className = 'px-4 py-2 rounded-lg text-sm font-medium ' + (is3d ? 'tab-active' : 'glass');
+                document.getElementById('heatmapBtnGrid').className = 'px-4 py-2 rounded-lg text-sm font-medium ' + (!is3d ? 'tab-active' : 'glass');
+                this.updateHeatmap();
+            }
+
             updateHeatmap() {
-                const container = document.getElementById('heatmapContainer');
-                if (!this.projections || Object.keys(this.projections).length === 0) {
-                    container.innerHTML = `
-                        <div class="text-center text-gray-400 py-8">
-                            <i data-lucide="grid" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>Waiting for projection data...</p>
-                        </div>
-                    `;
-                    lucide.createIcons();
-                    return;
+                if (this.heatmapMode === 'grid') {
+                    this._updateHeatmapGrid();
+                } else {
+                    this._updateHeatmap3d();
                 }
+            }
 
-                // For now, we show the first layer's projection
-                const layerName = Object.keys(this.projections)[0];
+            _updateHeatmap3d() {
+                const container = document.getElementById('heatmapContainer');
+                if (!this.projections || Object.keys(this.projections).length === 0) return;
+
+                // Show the first layer with the most points
+                const layerName = Object.keys(this.projections).sort(
+                    (a, b) => this.projections[b].length - this.projections[a].length
+                )[0];
                 const points = this.projections[layerName];
-                
-                if (points.length === 0) return;
+                if (!points || points.length === 0) return;
 
-                // Create Plotly data
-                const trace = {
-                    x: points.map(p => p.x),
-                    y: points.map(p => p.y),
-                    z: points.map(p => p.z),
+                // Build one trace per layer
+                const traces = Object.entries(this.projections).map(([layer, pts]) => ({
+                    x: pts.map(p => p.x), y: pts.map(p => p.y), z: pts.map(p => p.z),
                     mode: 'markers',
-                    marker: {
-                        size: 4,
-                        color: points.map(p => p.cluster_id || 0),
-                        colorscale: 'Viridis',
-                        opacity: 0.8
-                    },
-                    type: 'scatter3d',
-                    name: layerName
-                };
+                    marker: { size: 3.5, color: pts.map(p => p.cluster_id || 0), colorscale: 'Viridis', opacity: 0.75 },
+                    type: 'scatter3d', name: layer
+                }));
 
                 const layout = {
                     margin: { l: 0, r: 0, b: 0, t: 0 },
                     paper_bgcolor: 'rgba(0,0,0,0)',
-                    plot_bgcolor: 'rgba(0,0,0,0)',
                     scene: {
-                        xaxis: { title: 'PC1', gridcolor: '#334155', zerolinecolor: '#334155' },
-                        yaxis: { title: 'PC2', gridcolor: '#334155', zerolinecolor: '#334155' },
-                        zaxis: { title: 'PC3', gridcolor: '#334155', zerolinecolor: '#334155' }
+                        bgcolor: 'rgba(0,0,0,0)',
+                        xaxis: { title: 'PC1', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' },
+                        yaxis: { title: 'PC2', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' },
+                        zaxis: { title: 'PC3', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' }
                     },
-                    showlegend: true,
-                    legend: { font: { color: '#f1f5f9' } }
+                    legend: { font: { color: '#cbd5e1' }, bgcolor: 'rgba(0,0,0,0)' },
+                    showlegend: Object.keys(this.projections).length > 1
                 };
 
-                if (container.innerHTML.includes('Waiting for projection data')) {
-                    container.innerHTML = '<div id="plotly-div" style="height: 600px;"></div>';
+                // Use plotly-div inside heatmapContainer
+                if (!document.getElementById('plotly-3d-div')) {
+                    container.innerHTML = '<div id="plotly-3d-div" style="height:100%;"></div>';
                 }
+                Plotly.react('plotly-3d-div', traces, layout, { responsive: true });
+            }
 
-                Plotly.react('plotly-div', [trace], layout);
+            _updateHeatmapGrid() {
+                const container = document.getElementById('heatmapGridContainer');
+                if (!this.metrics || Object.keys(this.metrics).length === 0) return;
+
+                // Build layers × metrics matrix
+                const layers = Object.keys(this.metrics);
+                const metricSet = new Set();
+                layers.forEach(l => Object.keys(this.metrics[l]).forEach(m => metricSet.add(m)));
+                const metricNames = [...metricSet];
+
+                if (layers.length === 0 || metricNames.length === 0) return;
+
+                // Get latest value for each cell
+                const zValues = metricNames.map(metric =>
+                    layers.map(layer => {
+                        const pts = this.metrics[layer]?.[metric];
+                        if (!pts || pts.length === 0) return null;
+                        return pts[pts.length - 1].value;
+                    })
+                );
+
+                const trace = {
+                    z: zValues,
+                    x: layers,
+                    y: metricNames,
+                    type: 'heatmap',
+                    colorscale: 'Viridis',
+                    showscale: true,
+                    hoverongaps: false,
+                    colorbar: { tickfont: { color: '#94a3b8' } }
+                };
+
+                const layout = {
+                    margin: { l: 120, r: 20, b: 80, t: 20 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(15,23,42,0.6)',
+                    xaxis: { tickfont: { color: '#94a3b8' }, tickangle: -35, gridcolor: '#334155' },
+                    yaxis: { tickfont: { color: '#94a3b8' }, gridcolor: '#334155' },
+                    font: { color: '#94a3b8' }
+                };
+
+                if (!document.getElementById('plotly-grid-div')) {
+                    container.innerHTML = '<div id="plotly-grid-div" style="height:100%;"></div>';
+                }
+                Plotly.react('plotly-grid-div', [trace], layout, { responsive: true });
             }
 
             scheduleUpdate() {
                 if (this.updateScheduled) return;
-                
                 this.updateScheduled = true;
                 requestAnimationFrame(() => {
                     this.updateCharts();
                     this.updateAlertsList();
                     this.updateHeatmap();
+                    this.updateLayersPanel();
                     this.updateCounts();
                     this.updateScheduled = false;
                 });
+            }
+
+            updateLayersPanel() {
+                const container = document.getElementById('layersList');
+                const layers = Object.keys(this.metrics);
+                if (layers.length === 0) return;
+
+                const METRIC_COLORS = {
+                    activation_norm: '#3b82f6',
+                    effective_rank: '#8b5cf6',
+                    patchiness: '#f59e0b',
+                    cosine_similarity: '#10b981'
+                };
+
+                container.innerHTML = layers.map(layer => {
+                    const layerMetrics = this.metrics[layer];
+                    const badges = Object.entries(layerMetrics).map(([metric, pts]) => {
+                        if (pts.length === 0) return '';
+                        const latest = pts[pts.length - 1];
+                        const min = Math.min(...pts.map(p => p.value));
+                        const max = Math.max(...pts.map(p => p.value));
+                        const color = METRIC_COLORS[metric] || '#94a3b8';
+                        const pct = max !== min ? ((latest.value - min) / (max - min)) * 100 : 50;
+                        return `
+                            <div class="mt-3">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-xs font-medium" style="color:${color}">${metric}</span>
+                                    <span class="text-xs font-mono text-white">${latest.value.toFixed(4)}</span>
+                                </div>
+                                <div class="w-full bg-gray-700 rounded-full h-1.5">
+                                    <div class="h-1.5 rounded-full" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+                                </div>
+                                <div class="flex justify-between text-xs text-gray-500 mt-0.5">
+                                    <span>${min.toFixed(3)}</span><span>${max.toFixed(3)}</span>
+                                </div>
+                            </div>`;
+                    }).join('');
+
+                    return `
+                        <div class="glass rounded-xl p-4">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <i data-lucide="cpu" class="w-4 h-4 text-blue-400 flex-shrink-0"></i>
+                                <span class="text-sm font-semibold truncate text-white" title="${layer}">${layer}</span>
+                            </div>
+                            <span class="text-xs text-gray-500">${Object.keys(layerMetrics).length} metrics tracked</span>
+                            ${badges}
+                        </div>`;
+                }).join('');
+
+                document.getElementById('layersUpdatedAt').textContent =
+                    'Updated ' + new Date().toLocaleTimeString();
+                lucide.createIcons();
             }
 
             updateKeyMetrics(metric) {
