@@ -3,7 +3,9 @@ from pathlib import Path
 import sqlite3
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional
+import numpy as np
+from typing import Dict, Any, Optional, List
+import numpy as np
 
 
 class MetricStorage:
@@ -67,6 +69,23 @@ class MetricStorage:
                 layer_name TEXT NOT NULL,
                 level TEXT NOT NULL,
                 message TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+            )
+        """)
+        
+        # NEW: Projections table for 3D visualization
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS projections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id INTEGER,
+                step INTEGER NOT NULL,
+                layer_name TEXT NOT NULL,
+                point_index INTEGER NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                z REAL NOT NULL,
+                cluster_id INTEGER,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (experiment_id) REFERENCES experiments (id)
             )
@@ -151,6 +170,26 @@ class MetricStorage:
                     with open(self.csv_path, 'a') as f:
                         f.write(f"{step},{layer_name},{metric_name},{val_f},{is_validation},{timestamp}\n")
         
+        self.conn.commit()
+
+    def log_projections(self, step: int, layer_name: str, points: np.ndarray, cluster_ids: Optional[np.ndarray] = None):
+        """Store 3D projections in the database."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
+        res = cursor.fetchone()
+        if not res: return
+        experiment_id = res[0]
+
+        # Use efficient executemany for bulk insert
+        data = []
+        for i, point in enumerate(points):
+            cid = int(cluster_ids[i]) if cluster_ids is not None else None
+            data.append((experiment_id, step, layer_name, i, float(point[0]), float(point[1]), float(point[2]), cid))
+
+        cursor.executemany(
+            "INSERT INTO projections (experiment_id, step, layer_name, point_index, x, y, z, cluster_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            data
+        )
         self.conn.commit()
 
     def _stream_json(self, entry: Dict):

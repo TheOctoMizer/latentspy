@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LatentSpy - Real-time ML Monitoring</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+        }
+        
+        .glass {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .metric-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+        
+        .status-online {
+            background: linear-gradient(45deg, #10b981, #34d399);
+        }
+        
+        .status-offline {
+            background: linear-gradient(45deg, #ef4444, #f87171);
+        }
+        
+        .tab-active {
+            background: linear-gradient(45deg, #3b82f6, #60a5fa);
+            color: white;
+        }
+        
+        .metric-trend-up { color: #10b981; }
+        .metric-trend-down { color: #ef4444; }
+        
+        .alert-critical {
+            border-left: 4px solid #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .alert-warning {
+            border-left: 4px solid #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .alert-info {
+            border-left: 4px solid #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="glass border-b border-gray-700 sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="activity" class="w-8 h-8 text-blue-400"></i>
+                        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                            LatentSpy
+                        </h1>
+                    </div>
+                    <div id="connectionStatus" class="flex items-center space-x-2 px-3 py-1 rounded-full status-offline">
+                        <div class="w-2 h-2 rounded-full bg-white"></div>
+                        <span class="text-sm font-medium">Offline</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-400">
+                        <span id="experimentCount">0</span> experiments
+                    </div>
+                    <div class="text-sm text-gray-400">
+                        <span id="metricCount">0</span> metrics
+                    </div>
+                    <button id="refreshBtn" class="p-2 rounded-lg glass hover:bg-gray-700 transition">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Experiment Selector -->
+        <section class="mb-6">
+            <div class="glass rounded-xl p-4">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold flex items-center space-x-2">
+                        <i data-lucide="flask" class="w-5 h-5"></i>
+                        <span>Active Experiment</span>
+                    </h2>
+                    <select id="experimentSelector" class="bg-gray-800 border border-gray-600 rounded-lg px-3 py-1 text-sm">
+                        <option value="">Select Experiment</option>
+                    </select>
+                </div>
+                <div id="experimentInfo" class="text-sm text-gray-400">
+                    No experiment selected
+                </div>
+            </div>
+        </section>
+
+        <!-- Key Metrics Overview -->
+        <section class="mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="metric-card glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Current Loss</span>
+                        <i data-lucide="trending-down" class="w-4 h-4 text-red-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold" id="currentLoss">-</div>
+                    <div class="text-xs text-gray-500 mt-1" id="lossTrend">No data</div>
+                </div>
+                
+                <div class="metric-card glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Accuracy</span>
+                        <i data-lucide="trending-up" class="w-4 h-4 text-green-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold" id="currentAccuracy">-</div>
+                    <div class="text-xs text-gray-500 mt-1" id="accuracyTrend">No data</div>
+                </div>
+                
+                <div class="metric-card glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Learning Rate</span>
+                        <i data-lucide="zap" class="w-4 h-4 text-yellow-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold" id="currentLR">-</div>
+                    <div class="text-xs text-gray-500 mt-1" id="lrTrend">No data</div>
+                </div>
+                
+                <div class="metric-card glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Training Step</span>
+                        <i data-lucide="footprints" class="w-4 h-4 text-blue-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold" id="currentStep">0</div>
+                    <div class="text-xs text-gray-500 mt-1" id="stepProgress">Starting...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tabs -->
+        <section class="mb-6">
+            <div class="flex space-x-2 border-b border-gray-700">
+                <button class="tab-btn px-4 py-2 rounded-t-lg tab-active" data-tab="charts">
+                    <i data-lucide="line-chart" class="w-4 h-4 inline mr-2"></i>
+                    Charts
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="heatmap">
+                    <i data-lucide="grid" class="w-4 h-4 inline mr-2"></i>
+                    Heatmap
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="alerts">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 inline mr-2"></i>
+                    Alerts
+                    <span id="alertCount" class="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">0</span>
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="layers">
+                    <i data-lucide="layers" class="w-4 h-4 inline mr-2"></i>
+                    Layers
+                </button>
+            </div>
+        </section>
+
+        <!-- Tab Content -->
+        <section>
+            <!-- Charts Tab -->
+            <div id="charts-tab" class="tab-content">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="trending-down" class="w-5 h-5 text-red-400"></i>
+                            <span>Loss Metrics</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="lossChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="target" class="w-5 h-5 text-green-400"></i>
+                            <span>Performance Metrics</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="performanceChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="activity" class="w-5 h-5 text-purple-400"></i>
+                            <span>Gradient Statistics</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="gradientChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="cpu" class="w-5 h-5 text-blue-400"></i>
+                            <span>Layer Activations</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="activationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Heatmap Tab -->
+            <div id="heatmap-tab" class="tab-content hidden">
+                <div class="glass rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Layer-wise Metric Heatmap</h3>
+                    <div id="heatmapContainer" class="grid grid-cols-1 gap-4">
+                        <div class="text-center text-gray-400 py-8">
+                            <i data-lucide="grid" class="w-12 h-12 mx-auto mb-2"></i>
+                            <p>Heatmap visualization coming soon...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts Tab -->
+            <div id="alerts-tab" class="tab-content hidden">
+                <div class="glass rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <i data-lucide="bell" class="w-5 h-5"></i>
+                        <span>Health Alerts</span>
+                    </h3>
+                    <div id="alertsList" class="space-y-3">
+                        <div class="text-center text-gray-400 py-8">
+                            <i data-lucide="shield-check" class="w-12 h-12 mx-auto mb-2"></i>
+                            <p>No alerts - System running normally</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Layers Tab -->
+            <div id="layers-tab" class="tab-content hidden">
+                <div class="glass rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Layer Details</h3>
+                    <div id="layersList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="text-center text-gray-400 py-8">
+                            <i data-lucide="layers" class="w-12 h-12 mx-auto mb-2"></i>
+                            <p>Layer analysis coming soon...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        class LatentSpyDashboard {
+            constructor() {
+                this.ws = null;
+                this.experiments = [];
+                this.currentExperimentId = null;
+                this.metrics = {};
+                this.projections = {};
+                this.alerts = [];
+                this.charts = {};
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.updateScheduled = false;
+                
+                this.init();
+            }
+
+            init() {
+                this.initCharts();
+                this.setupEventListeners();
+                this.connectWebSocket();
+                this.loadExperiments();
+                
+                // Initialize Lucide icons
+                lucide.createIcons();
+            }
+
+            setupEventListeners() {
+                // Tab switching
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const tab = e.currentTarget.dataset.tab;
+                        this.switchTab(tab);
+                    });
+                });
+
+                // Experiment selector
+                document.getElementById('experimentSelector').addEventListener('change', (e) => {
+                    this.selectExperiment(e.target.value);
+                });
+
+                // Refresh button
+                document.getElementById('refreshBtn').addEventListener('click', () => {
+                    this.loadExperiments();
+                    this.rotateRefreshButton();
+                });
+            }
+
+            switchTab(tabName) {
+                // Update tab buttons
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    if (btn.dataset.tab === tabName) {
+                        btn.className = 'tab-btn px-4 py-2 rounded-t-lg tab-active';
+                    } else {
+                        btn.className = 'tab-btn px-4 py-2 rounded-t-lg glass';
+                    }
+                });
+
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.add('hidden');
+                });
+                document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+                
+                // Reinitialize icons
+                lucide.createIcons();
+            }
+
+            connectWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                const host = window.location.host || 'localhost:8000';
+                const wsUrl = `${protocol}${host}/ws`;
+
+                try {
+                    this.ws = new WebSocket(wsUrl);
+
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.updateConnectionStatus(true);
+                        this.reconnectAttempts = 0;
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('WebSocket closed');
+                        this.updateConnectionStatus(false);
+                        this.attemptReconnect();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const message = JSON.parse(event.data);
+                            this.handleMessage(message);
+                        } catch (error) {
+                            console.error('Error parsing message:', error);
+                        }
+                    };
+
+                } catch (error) {
+                    console.error('Failed to connect WebSocket:', error);
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+                    setTimeout(() => {
+                        this.connectWebSocket();
+                    }, 3000 * this.reconnectAttempts);
+                } else {
+                    console.log('Max reconnection attempts reached');
+                }
+            }
+
+            handleMessage(message) {
+                switch (message.type) {
+                    case 'new_experiment':
+                        this.handleNewExperiment(message.data.id);
+                        break;
+                    case 'metric':
+                        // Fallback for individual metrics (backward compatibility)
+                        if (this.currentExperimentId && message.data.experiment_id == this.currentExperimentId) {
+                            this.handleMetric(message.data);
+                            this.scheduleUpdate();
+                        }
+                        break;
+                    case 'metrics_batch':
+                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
+                            this.handleMetricsBatch(message.data);
+                        }
+                        break;
+                    case 'alert':
+                        // Fallback for individual alerts
+                        if (this.currentExperimentId && message.data.experiment_id == this.currentExperimentId) {
+                            this.handleAlert(message.data);
+                            this.scheduleUpdate();
+                        }
+                        break;
+                    case 'alerts_batch':
+                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
+                            this.handleAlertsBatch(message.data);
+                        }
+                        break;
+                    case 'projections_batch':
+                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
+                            this.handleProjectionsBatch(message.data);
+                        }
+                        break;
+                    case 'experiment_ended':
+                        this.handleExperimentEnded(message.data.id);
+                        break;
+                }
+            }
+
+            handleExperimentEnded(experimentId) {
+                console.log('Experiment ended:', experimentId);
+                if (this.currentExperimentId == experimentId) {
+                    // Clear the current experiment data
+                    this.currentExperimentId = null;
+                    this.metrics = {};
+                    this.alerts = [];
+                    this.updateCharts();
+                    this.updateAlertsList();
+                    this.updateCounts();
+                    this.updateKeyMetricsDisplay();
+                    
+                    // Update UI to show no active experiment
+                    document.getElementById('experimentInfo').innerHTML = 'No active experiment';
+                    document.getElementById('experimentSelector').value = '';
+                }
+            }
+
+            handleNewExperiment(experimentId) {
+                console.log('New experiment:', experimentId);
+                this.loadExperiments();
+                if (!this.currentExperimentId) {
+                    this.selectExperiment(experimentId);
+                }
+            }
+
+            handleProjectionsBatch(projections) {
+                if (!projections || projections.length === 0) return;
+                
+                projections.forEach(p => {
+                    if (!this.projections[p.layer_name]) {
+                        this.projections[p.layer_name] = [];
+                    }
+                    // We only keep the LATEST projection points for each layer
+                    // Since it's a 3D space of the current state
+                    if (this.projections[p.layer_name].length > 0 && this.projections[p.layer_name][0].step < p.step) {
+                         this.projections[p.layer_name] = [];
+                    }
+                    this.projections[p.layer_name].push(p);
+                });
+                
+                this.scheduleUpdate();
+            }
+
+            handleMetricsBatch(metrics) {
+                if (!metrics || metrics.length === 0) return;
+                
+                metrics.forEach(metric => {
+                    this.handleMetric(metric, false);
+                    this.updateKeyMetrics(metric);
+                });
+                
+                this.scheduleUpdate();
+            }
+
+            handleMetric(metric, triggerUpdate = true) {
+                // Store metric data
+                if (!this.metrics[metric.layer_name]) {
+                    this.metrics[metric.layer_name] = {};
+                }
+                if (!this.metrics[metric.layer_name][metric.metric_name]) {
+                    this.metrics[metric.layer_name][metric.metric_name] = [];
+                }
+
+                this.metrics[metric.layer_name][metric.metric_name].push({
+                    step: metric.step,
+                    value: metric.value,
+                    timestamp: metric.timestamp
+                });
+
+                // Limit data points
+                const data = this.metrics[metric.layer_name][metric.metric_name];
+                if (data.length > 200) { // Increased limit slightly for better history
+                    data.splice(0, data.length - 200);
+                }
+
+                if (triggerUpdate) {
+                    this.updateKeyMetrics(metric);
+                    this.scheduleUpdate();
+                }
+            }
+
+            handleAlertsBatch(alerts) {
+                if (!alerts || alerts.length === 0) return;
+                
+                alerts.forEach(alert => {
+                    this.handleAlert(alert, false);
+                });
+                
+                this.scheduleUpdate();
+            }
+
+            handleAlert(alert, triggerUpdate = true) {
+                this.alerts.unshift({
+                    ...alert,
+                    formattedTimestamp: new Date(alert.timestamp).toLocaleString()
+                });
+
+                if (this.alerts.length > 50) {
+                    this.alerts = this.alerts.slice(0, 50);
+                }
+
+                if (triggerUpdate) {
+                    this.scheduleUpdate();
+                }
+            }
+
+            updateHeatmap() {
+                const container = document.getElementById('heatmapContainer');
+                if (!this.projections || Object.keys(this.projections).length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center text-gray-400 py-8">
+                            <i data-lucide="grid" class="w-12 h-12 mx-auto mb-2"></i>
+                            <p>Waiting for projection data...</p>
+                        </div>
+                    `;
+                    lucide.createIcons();
+                    return;
+                }
+
+                // For now, we show the first layer's projection
+                const layerName = Object.keys(this.projections)[0];
+                const points = this.projections[layerName];
+                
+                if (points.length === 0) return;
+
+                // Create Plotly data
+                const trace = {
+                    x: points.map(p => p.x),
+                    y: points.map(p => p.y),
+                    z: points.map(p => p.z),
+                    mode: 'markers',
+                    marker: {
+                        size: 4,
+                        color: points.map(p => p.cluster_id || 0),
+                        colorscale: 'Viridis',
+                        opacity: 0.8
+                    },
+                    type: 'scatter3d',
+                    name: layerName
+                };
+
+                const layout = {
+                    margin: { l: 0, r: 0, b: 0, t: 0 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    scene: {
+                        xaxis: { title: 'PC1', gridcolor: '#334155', zerolinecolor: '#334155' },
+                        yaxis: { title: 'PC2', gridcolor: '#334155', zerolinecolor: '#334155' },
+                        zaxis: { title: 'PC3', gridcolor: '#334155', zerolinecolor: '#334155' }
+                    },
+                    showlegend: true,
+                    legend: { font: { color: '#f1f5f9' } }
+                };
+
+                if (container.innerHTML.includes('Waiting for projection data')) {
+                    container.innerHTML = '<div id="plotly-div" style="height: 600px;"></div>';
+                }
+
+                Plotly.react('plotly-div', [trace], layout);
+            }
+
+            scheduleUpdate() {
+                if (this.updateScheduled) return;
+                
+                this.updateScheduled = true;
+                requestAnimationFrame(() => {
+                    this.updateCharts();
+                    this.updateAlertsList();
+                    this.updateHeatmap();
+                    this.updateCounts();
+                    this.updateScheduled = false;
+                });
+            }
+
+            updateKeyMetrics(metric) {
+                const metricName = metric.metric_name.toLowerCase();
+                
+                if (metricName.includes('loss')) {
+                    document.getElementById('currentLoss').textContent = metric.value.toFixed(4);
+                    document.getElementById('lossTrend').textContent = `Step ${metric.step}`;
+                }
+                
+                if (metricName.includes('accuracy')) {
+                    document.getElementById('currentAccuracy').textContent = (metric.value * 100).toFixed(1) + '%';
+                    document.getElementById('accuracyTrend').textContent = `Step ${metric.step}`;
+                }
+                
+                if (metricName.includes('learning_rate') || metricName.includes('lr')) {
+                    document.getElementById('currentLR').textContent = metric.value.toExponential(2);
+                    document.getElementById('lrTrend').textContent = `Step ${metric.step}`;
+                }
+                
+                document.getElementById('currentStep').textContent = metric.step;
+                document.getElementById('stepProgress').textContent = `Training step ${metric.step}`;
+            }
+
+            initCharts() {
+                const chartOptions = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: { display: true, text: 'Step', color: '#94a3b8' },
+                            ticks: { color: '#64748b', maxTicksLimit: 8 },
+                            grid: { color: '#334155' }
+                        },
+                        y: {
+                            title: { display: true, text: 'Value', color: '#94a3b8' },
+                            ticks: { color: '#64748b', maxTicksLimit: 6 },
+                            grid: { color: '#334155' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#cbd5e1', usePointStyle: true }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1
+                        }
+                    }
+                };
+
+                // Initialize charts
+                this.charts.loss = new Chart(document.getElementById('lossChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
+
+                this.charts.performance = new Chart(document.getElementById('performanceChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
+
+                this.charts.gradient = new Chart(document.getElementById('gradientChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
+
+                this.charts.activation = new Chart(document.getElementById('activationChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
+            }
+
+            updateCharts() {
+                const colors = ['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'];
+                let colorIndex = 0;
+
+                // Organize metrics by chart type and update datasets
+                const chartDatasets = {
+                    loss: [],
+                    performance: [],
+                    gradient: [],
+                    activation: []
+                };
+
+                for (const [layer, layerMetrics] of Object.entries(this.metrics)) {
+                    for (const [metricName, dataPoints] of Object.entries(layerMetrics)) {
+                        if (dataPoints.length === 0) continue;
+
+                        const color = colors[colorIndex % colors.length];
+                        const isSinglePoint = dataPoints.length === 1;
+                        
+                        const dataset = {
+                            label: `${layer} - ${metricName}`,
+                            data: dataPoints.map(p => ({x: p.step, y: p.value})),
+                            borderColor: color,
+                            backgroundColor: color + '20',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.1,
+                            pointRadius: isSinglePoint ? 4 : 0,
+                            pointHoverRadius: isSinglePoint ? 6 : 3,
+                            showLine: !isSinglePoint
+                        };
+
+                        const lowerName = metricName.toLowerCase();
+                        if (lowerName.includes('loss')) {
+                            chartDatasets.loss.push(dataset);
+                        } else if (lowerName.includes('accuracy') || lowerName.includes('precision') || lowerName.includes('recall') || lowerName.includes('f1')) {
+                            chartDatasets.performance.push(dataset);
+                        } else if (lowerName.includes('gradient') || lowerName.includes('norm')) {
+                            chartDatasets.gradient.push(dataset);
+                        } else {
+                            chartDatasets.activation.push(dataset);
+                        }
+
+                        colorIndex++;
+                    }
+                }
+
+                // Update all charts efficiently
+                for (const [key, datasets] of Object.entries(chartDatasets)) {
+                    const chart = this.charts[key];
+                    if (chart) {
+                        chart.data.datasets = datasets;
+                        chart.update('none'); // Use 'none' mode for performance
+                    }
+                }
+            }
+
+            updateAlertsList() {
+                const container = document.getElementById('alertsList');
+                
+                if (this.alerts.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center text-gray-400 py-8">
+                            <i data-lucide="shield-check" class="w-12 h-12 mx-auto mb-2"></i>
+                            <p>No alerts - System running normally</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = this.alerts.map(alert => `
+                    <div class="alert-${alert.level} p-4 rounded-lg">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <span class="px-2 py-1 bg-${alert.level === 'critical' ? 'red' : alert.level === 'warning' ? 'yellow' : 'blue'}-500 text-white text-xs rounded">
+                                        ${alert.level.toUpperCase()}
+                                    </span>
+                                    <span class="text-sm text-gray-400">Step ${alert.step}</span>
+                                </div>
+                                <p class="text-white mb-1">${alert.message}</p>
+                                <p class="text-sm text-gray-400">
+                                    ${alert.layer_name} • ${alert.formattedTimestamp}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+                lucide.createIcons();
+            }
+
+            updateConnectionStatus(connected) {
+                const status = document.getElementById('connectionStatus');
+                if (connected) {
+                    status.className = 'flex items-center space-x-2 px-3 py-1 rounded-full status-online';
+                    status.innerHTML = '<div class="w-2 h-2 rounded-full bg-white pulse"></div><span class="text-sm font-medium">Online</span>';
+                } else {
+                    status.className = 'flex items-center space-x-2 px-3 py-1 rounded-full status-offline';
+                    status.innerHTML = '<div class="w-2 h-2 rounded-full bg-white"></div><span class="text-sm font-medium">Offline</span>';
+                }
+            }
+
+            updateCounts() {
+                document.getElementById('experimentCount').textContent = this.experiments.length;
+                document.getElementById('metricCount').textContent = Object.keys(this.metrics).length;
+                document.getElementById('alertCount').textContent = this.alerts.length;
+            }
+
+            async loadExperiments() {
+                try {
+                    const response = await fetch('/api/experiments');
+                    if (response.ok) {
+                        this.experiments = await response.json();
+                        this.updateExperimentSelector();
+                    }
+                } catch (error) {
+                    console.error('Failed to load experiments:', error);
+                }
+            }
+
+            updateExperimentSelector() {
+                const selector = document.getElementById('experimentSelector');
+                selector.innerHTML = '<option value="">Select Experiment</option>';
+                
+                this.experiments.forEach(exp => {
+                    const option = document.createElement('option');
+                    option.value = exp.id;
+                    option.textContent = exp.name || `Experiment ${exp.id}`;
+                    selector.appendChild(option);
+                });
+
+                if (this.currentExperimentId) {
+                    selector.value = this.currentExperimentId;
+                }
+            }
+
+            selectExperiment(experimentId) {
+                this.currentExperimentId = experimentId;
+                const experiment = this.experiments.find(exp => exp.id == experimentId);
+                
+                if (experiment) {
+                    document.getElementById('experimentInfo').innerHTML = `
+                        <div class="flex items-center space-x-4">
+                            <span><strong>${experiment.name || 'Unnamed'}</strong></span>
+                            <span class="text-gray-500">ID: ${experiment.id}</span>
+                            <span class="text-gray-500">Created: ${new Date(experiment.created_at).toLocaleString()}</span>
+                        </div>
+                    `;
+                }
+
+                // Reset data for new experiment
+                this.metrics = {};
+                this.alerts = [];
+                this.updateCharts();
+                this.updateAlertsList();
+                this.updateCounts();
+            }
+
+            rotateRefreshButton() {
+                const btn = document.getElementById('refreshBtn');
+                const icon = btn.querySelector('i');
+                icon.style.transform = 'rotate(360deg)';
+                icon.style.transition = 'transform 0.5s';
+                setTimeout(() => {
+                    icon.style.transform = 'rotate(0deg)';
+                }, 500);
+            }
+        }
+
+        // Initialize dashboard
+        const dashboard = new LatentSpyDashboard();
+    </script>
+</body>
+</html>

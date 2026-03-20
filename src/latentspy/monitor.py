@@ -4,6 +4,7 @@ import multiprocessing
 from . import metrics
 from .hooks import register_hooks
 from .storage import get_storage
+from .metrics.projection import project_to_3d
 
 class LatentMonitor:
     def __init__(
@@ -203,6 +204,17 @@ class LatentMonitor:
             results = self.compute()
             if results:
                 self.storage.update(results, step=self.global_step, is_validation=False)
+                
+                # NEW: Log 3D projections if patchiness is being tracked
+                for name, act in self.activations.items():
+                    if name == "__enabled__": continue
+                    if "patchiness" in self.metrics:
+                        try:
+                            projected = project_to_3d(act, max_points=500)
+                            self.storage.log_projections(self.global_step, name, projected)
+                        except Exception as e:
+                            print(f"Error computing 3D projection for {name}: {e}")
+
                 self._last_results = results
                 self.clear() 
         
