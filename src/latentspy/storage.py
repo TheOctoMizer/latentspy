@@ -5,7 +5,6 @@ import json
 from datetime import datetime
 import numpy as np
 from typing import Dict, Any, Optional, List
-import numpy as np
 
 
 class MetricStorage:
