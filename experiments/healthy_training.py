@@ -173,6 +173,12 @@ def run_experiment():
         export_path = monitor.storage.export_experiment_data(EXPERIMENT_NAME)
         print(f"Full export path: {export_path}")
 
+        # Save the model
+        print(f"\nSaving model to models/healthy_baseline...")
+        os.makedirs("models", exist_ok=True)
+        model.save_pretrained("models/healthy_baseline")
+        print("Model saved successfully.")
+
         monitor.remove()
         del model, optimizer, monitor
         if torch.cuda.is_available():
