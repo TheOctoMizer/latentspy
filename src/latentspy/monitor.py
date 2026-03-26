@@ -273,6 +273,15 @@ class LatentMonitor:
             value (float): Value to log.
         """
         results = {"__scalars__": {name: value}}
+        
+        # Auto-calculate perplexity if loss is provided
+        if name.lower() == "loss":
+            import math
+            try:
+                results["__scalars__"]["perplexity"] = math.exp(value)
+            except OverflowError:
+                results["__scalars__"]["perplexity"] = float('inf')
+                
         self.storage.update(results, step=self.global_step, is_validation=False)
 
 

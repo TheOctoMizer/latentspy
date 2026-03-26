@@ -206,6 +206,10 @@
                     <i data-lucide="layers" class="w-4 h-4 inline mr-2"></i>
                     Layers
                 </button>
+                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="training">
+                    <i data-lucide="database" class="w-4 h-4 inline mr-2"></i>
+                    Training
+                </button>
             </div>
         </section>
 
@@ -321,6 +325,31 @@
                         <div class="text-center text-gray-400 py-8 col-span-3">
                             <i data-lucide="layers" class="w-12 h-12 mx-auto mb-2"></i>
                             <p>Waiting for layer data…</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Tab -->
+            <div id="training-tab" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="trending-down" class="w-5 h-5 text-red-400"></i>
+                            <span>Training Loss</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="trainingLossChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="glass rounded-xl p-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
+                            <i data-lucide="zap" class="w-5 h-5 text-yellow-400"></i>
+                            <span>Perplexity</span>
+                        </h3>
+                        <div class="chart-container">
+                            <canvas id="perplexityChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -808,7 +837,7 @@
                     }
 
                     document.getElementById('currentHealth').textContent = maxEEE.toFixed(3);
-                    const status = maxEEE > 0.45 ? 'CRITICAL' : maxEEE > 0.35 ? 'WARNING' : 'Healthy';
+                    const status = maxEEE > 0.60 ? 'CRITICAL' : maxEEE > 0.45 ? 'WARNING' : 'Healthy';
                     const el = document.getElementById('healthStatus');
                     el.textContent = status;
                     el.className = `text-xs mt-1 ${status === 'Healthy' ? 'text-green-400' : status === 'WARNING' ? 'text-yellow-400' : 'text-red-400'}`;
@@ -876,6 +905,18 @@
                     data: { datasets: [] },
                     options: chartOptions
                 });
+
+                this.charts.training_loss = new Chart(document.getElementById('trainingLossChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
+
+                this.charts.perplexity = new Chart(document.getElementById('perplexityChart'), {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: chartOptions
+                });
             }
 
             updateCharts() {
@@ -887,7 +928,9 @@
                     loss: [],
                     performance: [],
                     gradient: [],
-                    activation: []
+                    activation: [],
+                    training_loss: [],
+                    perplexity: []
                 };
 
                 for (const [layer, layerMetrics] of Object.entries(this.metrics)) {
@@ -912,7 +955,11 @@
                         };
 
                         const lowerName = metricName.toLowerCase();
-                        if (lowerName.includes('loss')) {
+                        if (isScalar && lowerName.includes('loss')) {
+                            chartDatasets.training_loss.push(dataset);
+                        } else if (isScalar && lowerName.includes('perplexity')) {
+                            chartDatasets.perplexity.push(dataset);
+                        } else if (lowerName.includes('loss')) {
                             chartDatasets.loss.push(dataset);
                         } else if (lowerName.includes('accuracy') || lowerName.includes('precision') || lowerName.includes('recall') || lowerName.includes('f1')) {
                             chartDatasets.performance.push(dataset);
