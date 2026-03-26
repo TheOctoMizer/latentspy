@@ -274,9 +274,25 @@
 
                 <!-- 3D Scatter -->
                 <div id="heatmap-3d" class="glass rounded-xl p-6">
-                    <h3 class="text-lg font-semibold mb-1">Latent Space Projection (PCA → 3D)</h3>
-                    <p class="text-sm text-gray-400 mb-4">Each point is an activation vector. Color = cluster ID. Rotate to explore cluster patchiness.</p>
-                    <div id="heatmapContainer" style="height: 520px;">
+                    <div class="flex items-center justify-between mb-2 flex-wrap gap-3">
+                        <div>
+                            <h3 class="text-lg font-semibold">Latent Space Projection (PCA → 3D)</h3>
+                            <p class="text-sm text-gray-400 mt-0.5">Each point is an activation vector. Each <strong class="text-white">color = cluster</strong>. Rotate to explore separation.</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <label class="text-xs text-gray-400">Layer:</label>
+                            <select id="projectionLayerSelect" class="bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5 text-sm min-w-[220px]">
+                                <option value="">Waiting for data…</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Stats bar -->
+                    <div id="projectionStats" class="flex space-x-4 text-xs text-gray-500 mb-3 hidden">
+                        <span>Clusters: <strong id="statClusters" class="text-white">0</strong></span>
+                        <span>Points: <strong id="statPoints" class="text-white">0</strong></span>
+                        <span>Step: <strong id="statStep" class="text-white">-</strong></span>
+                    </div>
+                    <div id="heatmapContainer" style="height: 500px;">
                         <div class="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
                             <i data-lucide="box" class="w-14 h-14"></i>
                             <p class="text-base">Waiting for 3D projection data…</p>
@@ -403,6 +419,15 @@
                 document.getElementById('refreshBtn').addEventListener('click', () => {
                     this.loadExperiments();
                     this.rotateRefreshButton();
+                });
+
+                // Layer selector for 3D projection - re-render immediately on change
+                document.getElementById('projectionLayerSelect').addEventListener('change', () => {
+                    // Force re-create the plotly div so it redraws cleanly for the new layer
+                    const container = document.getElementById('heatmapContainer');
+                    const existing = document.getElementById('plotly-3d-div');
+                    if (existing) existing.remove();
+                    this._updateHeatmap3d();
                 });
             }
 
@@ -648,35 +673,95 @@
                 const container = document.getElementById('heatmapContainer');
                 if (!this.projections || Object.keys(this.projections).length === 0) return;
 
-                // Show the first layer with the most points
-                const layerName = Object.keys(this.projections).sort(
-                    (a, b) => this.projections[b].length - this.projections[a].length
-                )[0];
+                // Build sorted layer list and populate dropdown
+                const allLayers = Object.keys(this.projections).sort();
+                const select = document.getElementById('projectionLayerSelect');
+                
+                // Rebuild options if layer list changed
+                const currentOptions = [...select.options].map(o => o.value).filter(v => v);
+                if (JSON.stringify(currentOptions) !== JSON.stringify(allLayers)) {
+                    const currentVal = select.value;
+                    select.innerHTML = allLayers.map(l =>
+                        `<option value="${l}">${l}</option>`
+                    ).join('');
+                    // Prefer previously selected layer, else pick the one with most points
+                    if (currentVal && this.projections[currentVal]) {
+                        select.value = currentVal;
+                    } else {
+                        select.value = allLayers.sort(
+                            (a, b) => this.projections[b].length - this.projections[a].length
+                        )[0];
+                    }
+                }
+
+                const layerName = select.value;
                 const points = this.projections[layerName];
                 if (!points || points.length === 0) return;
 
-                // Build one trace per layer
-                const traces = Object.entries(this.projections).map(([layer, pts]) => ({
-                    x: pts.map(p => p.x), y: pts.map(p => p.y), z: pts.map(p => p.z),
-                    mode: 'markers',
-                    marker: { size: 3.5, color: pts.map(p => p.cluster_id || 0), colorscale: 'Viridis', opacity: 0.75 },
-                    type: 'scatter3d', name: layer
-                }));
+                // Group points by cluster_id
+                const clusterMap = {};
+                points.forEach(p => {
+                    const cid = p.cluster_id ?? 0;
+                    if (!clusterMap[cid]) clusterMap[cid] = [];
+                    clusterMap[cid].push(p);
+                });
+
+                const clusterIds = Object.keys(clusterMap).sort((a, b) => +a - +b);
+                
+                // Vivid categorical colors for clusters
+                const CLUSTER_COLORS = [
+                    '#60a5fa', '#f87171', '#34d399', '#fbbf24', '#a78bfa',
+                    '#fb923c', '#38bdf8', '#f472b6', '#4ade80', '#facc15',
+                    '#818cf8', '#e879f9', '#2dd4bf', '#fb7185', '#a3e635'
+                ];
+
+                // One trace per cluster = distinct color per cluster
+                const traces = clusterIds.map((cid, i) => {
+                    const pts = clusterMap[cid];
+                    const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+                    return {
+                        x: pts.map(p => p.x),
+                        y: pts.map(p => p.y),
+                        z: pts.map(p => p.z),
+                        mode: 'markers',
+                        type: 'scatter3d',
+                        name: `Cluster ${cid}`,
+                        marker: {
+                            size: 3.5,
+                            color: color,
+                            opacity: 0.82,
+                            line: { width: 0.4, color: 'rgba(0,0,0,0.3)' }
+                        },
+                        hovertemplate: `<b>Cluster ${cid}</b><br>PC1: %{x:.2f}<br>PC2: %{y:.2f}<br>PC3: %{z:.2f}<extra></extra>`
+                    };
+                });
 
                 const layout = {
                     margin: { l: 0, r: 0, b: 0, t: 0 },
                     paper_bgcolor: 'rgba(0,0,0,0)',
                     scene: {
-                        bgcolor: 'rgba(0,0,0,0)',
-                        xaxis: { title: 'PC1', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' },
-                        yaxis: { title: 'PC2', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' },
-                        zaxis: { title: 'PC3', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569' }
+                        bgcolor: 'rgba(15, 23, 42, 0.5)',
+                        xaxis: { title: 'PC1', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false },
+                        yaxis: { title: 'PC2', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false },
+                        zaxis: { title: 'PC3', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false }
                     },
-                    legend: { font: { color: '#cbd5e1' }, bgcolor: 'rgba(0,0,0,0)' },
-                    showlegend: Object.keys(this.projections).length > 1
+                    legend: {
+                        font: { color: '#cbd5e1', size: 11 },
+                        bgcolor: 'rgba(15, 23, 42, 0.7)',
+                        bordercolor: '#334155',
+                        borderwidth: 1,
+                        itemsizing: 'constant'
+                    },
+                    showlegend: true
                 };
 
-                // Use plotly-div inside heatmapContainer
+                // Update stats bar
+                const statsEl = document.getElementById('projectionStats');
+                statsEl.classList.remove('hidden');
+                document.getElementById('statClusters').textContent = clusterIds.length;
+                document.getElementById('statPoints').textContent = points.length;
+                document.getElementById('statStep').textContent = points[0]?.step ?? '-';
+
                 if (!document.getElementById('plotly-3d-div')) {
                     container.innerHTML = '<div id="plotly-3d-div" style="height:100%;"></div>';
                 }
