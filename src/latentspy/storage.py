@@ -4,28 +4,33 @@ import sqlite3
 import json
 from datetime import datetime
 import numpy as np
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 
 
 class MetricStorage:
-    def __init__(self, experiment_name: Optional[str] = None, log_type: str = "db"):
+    def __init__(self, experiment_name: Optional[str] = None, log_type: Union[str, List[str]] = "db"):
         self.history = defaultdict(lambda: defaultdict(list))
         self.experiment_name = experiment_name or f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.log_type = log_type.lower()
+        
+        # Support multiple log types
+        if isinstance(log_type, str):
+            self.log_types = {log_type.lower()}
+        else:
+            self.log_types = {t.lower() for t in log_type}
         
         self.run_storage: Path = Path(".") / ".latentspy" / "runs"
         self.run_storage.mkdir(parents=True, exist_ok=True)
         self.run_database: Path = self.run_storage / "runs.db"
         
-        # self.json_path = self.run_storage / f"{self.experiment_name}.json"
         self.json_path = self.run_storage / f"{self.experiment_name}.jsonl"
         self.csv_path = self.run_storage / f"{self.experiment_name}.csv"
         
-        if self.log_type == "json" and not self.json_path.exists():
+        if "json" in self.log_types and not self.json_path.exists():
             with open(self.json_path, 'w') as f:
-                json.dump({"experiment": self.experiment_name, "created_at": datetime.now().isoformat(), "metrics": []}, f)
+                # We use JSONL, so we could just leave it empty, but initializing it is fine
+                pass
         
-        if self.log_type == "csv" and not self.csv_path.exists():
+        if "csv" in self.log_types and not self.csv_path.exists():
             with open(self.csv_path, 'w') as f:
                 f.write("step,layer,metric,value,is_validation,timestamp\n")
 
@@ -131,7 +136,7 @@ class MetricStorage:
         )
         self.conn.commit()
 
-        if self.log_type == "json":
+        if "json" in self.log_types:
             self._stream_json({"type": "alert", "step": step, "layer": layer_name, "level": level, "message": message})
 
     def update(self, results: Dict[str, Dict[str, Any]], step: int, is_validation: bool = False):
@@ -161,11 +166,11 @@ class MetricStorage:
                 )
 
                 # JSON Streaming
-                if self.log_type == "json":
+                if "json" in self.log_types:
                     self._stream_json({"step": step, "layer": layer_name, "metric": metric_name, "value": val_f, "is_validation": is_validation})
                 
                 # CSV Streaming
-                if self.log_type == "csv":
+                if "csv" in self.log_types:
                     with open(self.csv_path, 'a') as f:
                         f.write(f"{step},{layer_name},{metric_name},{val_f},{is_validation},{timestamp}\n")
         
@@ -260,7 +265,7 @@ class MetricStorage:
 
 _global_storage = None
 
-def get_storage(experiment_name: Optional[str] = None, log_type: str = "db") -> MetricStorage:
+def get_storage(experiment_name: Optional[str] = None, log_type: Union[str, List[str]] = "db") -> MetricStorage:
     """Get or create the global storage instance."""
     global _global_storage
     if _global_storage is None:

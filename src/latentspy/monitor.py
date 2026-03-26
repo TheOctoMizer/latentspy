@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import multiprocessing
+from typing import List, Union, Optional, Dict, Any
 from . import metrics
 from .hooks import register_hooks
 from .storage import get_storage
@@ -16,7 +17,7 @@ class LatentMonitor:
         distributed: bool = False, 
         val_interval: int = None, 
         experiment_name: str = None, 
-        log_type: str = "db", 
+        log_type: Union[str, List[str]] = "db", 
         alert_interval: int = 50, 
         dashboard: bool = False, 
         dashboard_port: int = 8000,
@@ -158,9 +159,9 @@ class LatentMonitor:
 
         if "eigenvalue_early_enrichment" in metrics_dict:
             eee = metrics_dict["eigenvalue_early_enrichment"]
-            if eee > 0.45:
+            if eee > 0.60:
                 warnings.append((f"SPECTRAL COLLAPSE: {layer_name} EEE is {eee:.3f}. Variance is concentrated in very few dimensions.", "CRITICAL"))
-            elif eee > 0.35:
+            elif eee > 0.45:
                 warnings.append((f"High spectral enrichment in {layer_name} (EEE={eee:.3f}).", "WARNING"))
 
         if "sparsity" in metrics_dict:
@@ -179,16 +180,16 @@ class LatentMonitor:
 
         if "reconstruction_error" in metrics_dict:
             re = metrics_dict["reconstruction_error"]
-            if re > 0.4:
+            if re > 0.6:
                 warnings.append((f"POOR RECONSTRUCTION: {layer_name} RE is {re:.3f}. Latent structure is highly fragmented.", "CRITICAL"))
-            elif re > 0.2:
+            elif re > 0.4:
                 warnings.append((f"High reconstruction error in {layer_name} (RE={re:.3f}). Clusters are poorly defined.", "WARNING"))
 
         if "reconstruction_skew" in metrics_dict:
             rs = metrics_dict["reconstruction_skew"]
-            if rs > 5.0:
+            if rs > 8.0:
                 warnings.append((f"EXTREME ERROR SKEW: {layer_name} RS is {rs:.1f}. Some features are significantly under-represented.", "CRITICAL"))
-            elif rs > 2.0:
+            elif rs > 4.0:
                 warnings.append((f"High reconstruction skew in {layer_name} (RS={rs:.1f}). Non-uniform cluster quality.", "WARNING"))
 
         for msg, level in warnings:
@@ -311,9 +312,10 @@ class LatentMonitor:
 
         if results:
             self.storage.update(results, step=self.global_step, is_validation=True)
-            # Run health checks on val results too
-            for name, metrics_dict in results.items():
-                self._check_health(f"val_{name}", metrics_dict)
+            # Run health checks on val results too (respects warmup)
+            if self.global_step >= self.alert_warmup_steps:
+                for name, metrics_dict in results.items():
+                    self._check_health(f"val_{name}", metrics_dict)
 
         # Clear the buffer
         self.val_activations.clear()

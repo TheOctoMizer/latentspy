@@ -10,7 +10,7 @@ def watch(
     distributed: bool = False,
     val_interval: int = None,
     experiment_name: str = None,
-    log_type: str = "db",
+    log_type: Union[str, List[str]] = "db",
     alert_interval: int = 50,
     dashboard: bool = False,
     dashboard_port: int = 8000,
@@ -30,7 +30,8 @@ def watch(
         distributed (bool): If True, synchronize and average metrics across all GPUs.
         val_interval (int): Compute validation-based PP every N steps. If None, disabled.
         experiment_name (str): Name for experiment tracking.
-        log_type (str): Storage format ("db", "json", "csv", "none"). Defaults to "db".
+        log_type (Union[str, List[str]]): Storage format ("db", "json", "csv", "none") or a list of formats. 
+        # Defaults to "db".
         alert_interval (int): Minimum steps between identical console warnings. Defaults to 50.
         dashboard (bool): If True, start the real-time web dashboard in the background.
         dashboard_port (int): Port to run the dashboard on. Defaults to 8000.
