@@ -12,10 +12,10 @@ def watch(
     experiment_name: str = None,
     log_type: str = "db",
     alert_interval: int = 50,
-    dashboard: bool = False,
     dashboard_port: int = 8000,
     metric_kwargs=None,
-    val_metric_kwargs=None
+    val_metric_kwargs=None,
+    alert_warmup_steps: int = 0
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -50,7 +50,8 @@ def watch(
         dashboard=dashboard,
         dashboard_port=dashboard_port,
         metric_kwargs=metric_kwargs,
-        val_metric_kwargs=val_metric_kwargs
+        val_metric_kwargs=val_metric_kwargs,
+        alert_warmup_steps=alert_warmup_steps
     )
     monitor.attach()
     return monitor

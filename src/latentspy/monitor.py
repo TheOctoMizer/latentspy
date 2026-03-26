@@ -21,7 +21,8 @@ class LatentMonitor:
         dashboard: bool = False, 
         dashboard_port: int = 8000,
         metric_kwargs=None,
-        val_metric_kwargs=None
+        val_metric_kwargs=None,
+        alert_warmup_steps: int = 0
     ):
         self.model = model
         self.layers = layers
@@ -36,6 +37,7 @@ class LatentMonitor:
         self.dashboard_port = dashboard_port
         self.metric_kwargs = metric_kwargs or {}
         self.val_metric_kwargs = val_metric_kwargs or {}
+        self.alert_warmup_steps = alert_warmup_steps
         self.server_process = None
         
         if self.dashboard:
@@ -126,9 +128,11 @@ class LatentMonitor:
 
     def _check_health(self, layer_name, metrics_dict, act_tensor=None):
         """Check metrics against health thresholds and issue colored warnings."""
+        if self.global_step < self.alert_warmup_steps:
+            return
+            
         warnings = []
         
-        # 1. Effective Rank Collapse
         if "effective_rank" in metrics_dict:
             rank = metrics_dict["effective_rank"]
             if rank < 1.1:
@@ -136,7 +140,6 @@ class LatentMonitor:
             elif rank < 2.0:
                 warnings.append((f"Low rank detected in {layer_name} (rank={rank:.2f}).", "WARNING"))
 
-        # 2. Activation Explosion (Norm)
         if "activation_norm" in metrics_dict:
             norm = metrics_dict["activation_norm"]
             if norm > 1e6:
@@ -144,23 +147,53 @@ class LatentMonitor:
             elif norm > 1e3:
                 warnings.append((f"High activation norm in {layer_name} (norm={norm:.2e}).", "WARNING"))
 
-        # 3. Patchiness (Representation Collapse)
         if "patchiness" in metrics_dict:
             pp = metrics_dict["patchiness"]
-            # New formula (Relative Variance): 
             # 0.0 = Perfectly Uniform (Healthy)
             # >> 1.0 = Highly Clustered (Anomaly)
-            # For small batches, 1.0-5.0 might be normal variance.
             if pp > 20.0:
                 warnings.append((f"REPRESENTATION COLLAPSE: {layer_name} patchiness is {pp:.2f}. Features are dying or highly redundant.", "CRITICAL"))
             elif pp > 10.0:
                 warnings.append((f"High representation clustering in {layer_name} (pp={pp:.2f}).", "WARNING"))
 
+        if "eigenvalue_early_enrichment" in metrics_dict:
+            eee = metrics_dict["eigenvalue_early_enrichment"]
+            if eee > 0.45:
+                warnings.append((f"SPECTRAL COLLAPSE: {layer_name} EEE is {eee:.3f}. Variance is concentrated in very few dimensions.", "CRITICAL"))
+            elif eee > 0.35:
+                warnings.append((f"High spectral enrichment in {layer_name} (EEE={eee:.3f}).", "WARNING"))
+
+        if "sparsity" in metrics_dict:
+            sp = metrics_dict["sparsity"]
+            if sp > 0.95:
+                warnings.append((f"REPRESENTATION DEATH: {layer_name} sparsity is {sp:.2f}. >95% of units are inactive.", "CRITICAL"))
+            elif sp > 0.8:
+                warnings.append((f"High sparsity in {layer_name} (Sparsity={sp:.2f}). Possible over-pruning.", "WARNING"))
+
+        if "kurtosis" in metrics_dict:
+            kurt = metrics_dict["kurtosis"]
+            if kurt > 1000:
+                warnings.append((f"EXTREME OUTLIERS: {layer_name} kurtosis is {kurt:.1f}. Numerical instability likely.", "CRITICAL"))
+            elif kurt > 100:
+                warnings.append((f"High kurtosis in {layer_name} (Kurtosis={kurt:.1f}). Strong outlier features detected.", "WARNING"))
+
+        if "reconstruction_error" in metrics_dict:
+            re = metrics_dict["reconstruction_error"]
+            if re > 0.4:
+                warnings.append((f"POOR RECONSTRUCTION: {layer_name} RE is {re:.3f}. Latent structure is highly fragmented.", "CRITICAL"))
+            elif re > 0.2:
+                warnings.append((f"High reconstruction error in {layer_name} (RE={re:.3f}). Clusters are poorly defined.", "WARNING"))
+
+        if "reconstruction_skew" in metrics_dict:
+            rs = metrics_dict["reconstruction_skew"]
+            if rs > 5.0:
+                warnings.append((f"EXTREME ERROR SKEW: {layer_name} RS is {rs:.1f}. Some features are significantly under-represented.", "CRITICAL"))
+            elif rs > 2.0:
+                warnings.append((f"High reconstruction skew in {layer_name} (RS={rs:.1f}). Non-uniform cluster quality.", "WARNING"))
+
         for msg, level in warnings:
-            # 1. Persist alert to database
             self.storage.log_alert(self.global_step, layer_name, level, msg)
             
-            # 2. Console warning (Rate limited)
             warn_key = f"{layer_name}_{msg}"
             if warn_key not in self._health_states or (self.global_step - self._health_states[warn_key] >= self.alert_interval):
                 self._health_states[warn_key] = self.global_step
@@ -188,13 +221,15 @@ class LatentMonitor:
                         torch.distributed.all_reduce(tensor_val, op=torch.distributed.ReduceOp.SUM)
                         val = (tensor_val / torch.distributed.get_world_size()).item()
                     
-                    results[name][metric_name] = val
+                    if isinstance(val, dict):
+                        results[name].update(val)
+                    else:
+                        results[name][metric_name] = val
                 else:
                     if metric_name not in self._warned_metrics:
                         print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
                         self._warned_metrics.add(metric_name)
             
-            # Internal health check
             self._check_health(name, results[name], act)
             
         return results
@@ -205,7 +240,6 @@ class LatentMonitor:
             if results:
                 self.storage.update(results, step=self.global_step, is_validation=False)
                 
-                # NEW: Log 3D projections if patchiness is being tracked
                 for name, act in self.activations.items():
                     if name == "__enabled__": continue
                     if "patchiness" in self.metrics:
@@ -218,7 +252,6 @@ class LatentMonitor:
                 self._last_results = results
                 self.clear() 
         
-        # Return combined results
         combined_results = self._last_results.copy()
         for layer_name, metrics in self._last_val_results.items():
             combined_results[f"val_{layer_name}"] = metrics
@@ -229,6 +262,17 @@ class LatentMonitor:
         enabled = self.activations.get("__enabled__", True)
         self.activations.clear()
         self.activations["__enabled__"] = enabled
+
+    def log_scalar(self, name: str, value: float):
+        """
+        Log a scalar metric (e.g. loss, learning rate) directly to storage.
+        
+        Args:
+            name (str): Name of the metric.
+            value (float): Value to log.
+        """
+        results = {"__scalars__": {name: value}}
+        self.storage.update(results, step=self.global_step, is_validation=False)
 
 
     def start_val(self):
@@ -255,7 +299,11 @@ class LatentMonitor:
                 metric_fn = getattr(metrics, metric_name, None)
                 if metric_fn:
                     kwargs = self.val_metric_kwargs.get(metric_name, self.metric_kwargs.get(metric_name, {}))
-                    results[name][metric_name] = metric_fn(act, **kwargs)
+                    val = metric_fn(act, **kwargs)
+                    if isinstance(val, dict):
+                        results[name].update(val)
+                    else:
+                        results[name][metric_name] = val
                 else:
                     if metric_name not in self._warned_metrics:
                         print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")

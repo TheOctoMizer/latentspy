@@ -138,7 +138,7 @@
 
         <!-- Key Metrics Overview -->
         <section class="mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <div class="metric-card glass rounded-xl p-4">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-sm text-gray-400">Current Loss</span>
@@ -173,6 +173,15 @@
                     </div>
                     <div class="text-2xl font-bold" id="currentStep">0</div>
                     <div class="text-xs text-gray-500 mt-1" id="stepProgress">Starting...</div>
+                </div>
+
+                <div class="metric-card glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Max Layer EEE</span>
+                        <i data-lucide="shield" class="w-4 h-4 text-purple-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold" id="currentHealth">-</div>
+                    <div class="text-xs text-gray-500 mt-1" id="healthStatus">Optimal</div>
                 </div>
             </div>
         </section>
@@ -707,14 +716,19 @@
 
             updateLayersPanel() {
                 const container = document.getElementById('layersList');
-                const layers = Object.keys(this.metrics);
+                const layers = Object.keys(this.metrics).filter(l => l !== '__scalars__');
                 if (layers.length === 0) return;
 
                 const METRIC_COLORS = {
                     activation_norm: '#3b82f6',
                     effective_rank: '#8b5cf6',
                     patchiness: '#f59e0b',
-                    cosine_similarity: '#10b981'
+                    cosine_similarity: '#10b981',
+                    eigenvalue_early_enrichment: '#a855f7',
+                    sparsity: '#64748b',
+                    kurtosis: '#ec4899',
+                    reconstruction_error: '#f87171',
+                    reconstruction_skew: '#fbbf24'
                 };
 
                 container.innerHTML = layers.map(layer => {
@@ -775,8 +789,30 @@
                     document.getElementById('lrTrend').textContent = `Step ${metric.step}`;
                 }
                 
+                
                 document.getElementById('currentStep').textContent = metric.step;
                 document.getElementById('stepProgress').textContent = `Training step ${metric.step}`;
+
+                if (metricName === 'eigenvalue_early_enrichment') {
+                    // Update overview with the WORST (max) EEE value for the current step
+                    let maxEEE = 0;
+                    const targetStep = metric.step;
+                    
+                    for (const layerMetrics of Object.values(this.metrics)) {
+                        if (layerMetrics.eigenvalue_early_enrichment) {
+                            const latestPoint = layerMetrics.eigenvalue_early_enrichment.find(p => p.step === targetStep);
+                            if (latestPoint && latestPoint.value > maxEEE) {
+                                maxEEE = latestPoint.value;
+                            }
+                        }
+                    }
+
+                    document.getElementById('currentHealth').textContent = maxEEE.toFixed(3);
+                    const status = maxEEE > 0.45 ? 'CRITICAL' : maxEEE > 0.35 ? 'WARNING' : 'Healthy';
+                    const el = document.getElementById('healthStatus');
+                    el.textContent = status;
+                    el.className = `text-xs mt-1 ${status === 'Healthy' ? 'text-green-400' : status === 'WARNING' ? 'text-yellow-400' : 'text-red-400'}`;
+                }
             }
 
             initCharts() {
@@ -860,9 +896,10 @@
 
                         const color = colors[colorIndex % colors.length];
                         const isSinglePoint = dataPoints.length === 1;
+                        const isScalar = layer === '__scalars__';
                         
                         const dataset = {
-                            label: `${layer} - ${metricName}`,
+                            label: isScalar ? metricName : `${layer} - ${metricName}`,
                             data: dataPoints.map(p => ({x: p.step, y: p.value})),
                             borderColor: color,
                             backgroundColor: color + '20',
@@ -881,6 +918,8 @@
                             chartDatasets.performance.push(dataset);
                         } else if (lowerName.includes('gradient') || lowerName.includes('norm')) {
                             chartDatasets.gradient.push(dataset);
+                        } else if (lowerName.includes('enrichment') || lowerName.includes('rank') || lowerName.includes('sparsity') || lowerName.includes('kurtosis') || lowerName.includes('patchiness') || lowerName.includes('reconstruction')) {
+                            chartDatasets.activation.push(dataset);
                         } else {
                             chartDatasets.activation.push(dataset);
                         }
@@ -946,8 +985,9 @@
             }
 
             updateCounts() {
+                const layerCount = Object.keys(this.metrics).filter(l => l !== '__scalars__').length;
                 document.getElementById('experimentCount').textContent = this.experiments.length;
-                document.getElementById('metricCount').textContent = Object.keys(this.metrics).length;
+                document.getElementById('metricCount').textContent = layerCount;
                 document.getElementById('alertCount').textContent = this.alerts.length;
             }
 

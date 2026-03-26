@@ -34,11 +34,11 @@ def run_experiment():
     print(f"Using device: {DEVICE}")
 
     # HEALTHY BASELINE HYPERPARAMETERS
-    LEARNING_RATE = 1e-4
+    LEARNING_RATE = 5e-5
     BATCH_SIZE = 8
     NUM_EPOCHS = 3
     VAL_INTERVAL = 100
-    SAMPLE_INTERVAL = 500
+    SAMPLE_INTERVAL = 200
 
     print(f"=== {EXPERIMENT_NAME} ===")
     print(f"Learning Rate: {LEARNING_RATE}")
@@ -78,7 +78,11 @@ def run_experiment():
             ls.Metric.PATCHINESS,
             ls.Metric.ACTIVATION_NORM,
             ls.Metric.EFFECTIVE_RANK,
-            ls.Metric.COSINE_SIMILARITY
+            ls.Metric.COSINE_SIMILARITY,
+            ls.Metric.EEE,
+            ls.Metric.SPARSITY,
+            ls.Metric.KURTOSIS,
+            ls.Metric.RECONSTRUCTION
         ],
         sample_interval=SAMPLE_INTERVAL,
         val_interval=VAL_INTERVAL,
@@ -87,13 +91,15 @@ def run_experiment():
         alert_interval=10,
         dashboard=True,
         metric_kwargs={"patchiness": {"k": 16}},
-        val_metric_kwargs={"patchiness": {"k": 256}}
+        val_metric_kwargs={"patchiness": {"k": 256}},
+        alert_warmup_steps=500
     )
 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=LEARNING_RATE,
-        weight_decay=0.01
+        weight_decay=0.1,
+        betas=(0.9, 0.95)
     )
 
     train_iterator = get_batches(train_dataset, tokenizer, batch_size=BATCH_SIZE)
@@ -139,6 +145,10 @@ def run_experiment():
                     monitor.run_validation_pp(val_batches)
 
                 monitor.log()
+                monitor.log_scalar("loss", loss.item())
+                current_lr = optimizer.param_groups[0]['lr']
+                monitor.log_scalar("lr", current_lr)
+                
                 loss_history.append(loss.item())
                 
                 if global_step % 100 == 0 or global_step == 1:
