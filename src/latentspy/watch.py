@@ -12,6 +12,7 @@ def watch(
     experiment_name: str = None,
     log_type: str = "db",
     alert_interval: int = 50,
+    dashboard: bool = False,
     dashboard_port: int = 8000,
     metric_kwargs=None,
     val_metric_kwargs=None,
