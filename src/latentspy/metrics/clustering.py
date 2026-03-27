@@ -5,7 +5,7 @@ from typing import Tuple, Dict, Any
 from .density import calculate_cell_densities, analyze_density_distribution
 
 
-def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int = 20) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int = 5) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
     Quantize the latent space using FAISS K-Means clustering.
     
@@ -14,7 +14,7 @@ def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int =
     Args:
         activations_np (np.ndarray): Prepared activations array of shape (total_tokens, hidden_dim)
         k (int): Number of cluster centroids. Paper default is 256.
-        niter (int): Number of K-Means iterations. Default is 20.
+        niter (int): Number of K-Means iterations. Default is 5.
     
     Returns:
         Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:

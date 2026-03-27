@@ -16,7 +16,8 @@ def watch(
     dashboard_port: int = 8000,
     metric_kwargs=None,
     val_metric_kwargs=None,
-    alert_warmup_steps: int = 0
+    alert_warmup_steps: int = 0,
+    deep_metric_interval: int = 10
 ) -> LatentMonitor:
     """
     Start watching a model's latent activations.
@@ -35,6 +36,8 @@ def watch(
         alert_interval (int): Minimum steps between identical console warnings. Defaults to 50.
         dashboard (bool): If True, start the real-time web dashboard in the background.
         dashboard_port (int): Port to run the dashboard on. Defaults to 8000.
+        deep_metric_interval (int): Run expensive metrics (SVD, PCA, etc.) every N sampled steps. 
+        
             
     Returns:
         LatentMonitor: An active monitor instance.

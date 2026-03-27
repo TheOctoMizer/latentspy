@@ -34,8 +34,21 @@ class MetricStorage:
             with open(self.csv_path, 'w') as f:
                 f.write("step,layer,metric,value,is_validation,timestamp\n")
 
-        self.conn = sqlite3.connect(self.run_database, timeout=5.0)
+        self.conn = sqlite3.connect(self.run_database, timeout=5.0, check_same_thread=False)
         self._init_database()
+        
+        self.csv_handle = None
+        if "csv" in self.log_types:
+            self.csv_handle = open(self.csv_path, 'a', buffering=1) # Line buffered
+
+    def close(self):
+        """Close storage resources."""
+        if hasattr(self, 'csv_handle') and self.csv_handle:
+            self.csv_handle.close()
+            self.csv_handle = None
+        if hasattr(self, 'conn') and self.conn:
+            self.conn.close()
+            self.conn = None
 
     def _init_database(self):
         """Initialize database tables for storing experiment data."""
@@ -139,7 +152,11 @@ class MetricStorage:
         if "json" in self.log_types:
             self._stream_json({"type": "alert", "step": step, "layer": layer_name, "level": level, "message": message})
 
-    def update(self, results: Dict[str, Dict[str, Any]], step: int, is_validation: bool = False):
+    def flush(self):
+        """Explicitly commit all pending database changes."""
+        self.conn.commit()
+
+    def update(self, results: Dict[str, Dict[str, Any]], step: int, is_validation: bool = False, commit: bool = True):
         """Update storage with new metrics."""
         if not results and step > 0: return 
         
@@ -154,29 +171,32 @@ class MetricStorage:
         
         timestamp = datetime.now().isoformat()
         
+        db_entries = []
         for layer_name, metrics in results.items():
             for metric_name, value in metrics.items():
                 val_f = float(value)
                 self.history[layer_name][metric_name].append((step, val_f))
                 
-                # DB Storage
-                cursor.execute(
-                    "INSERT INTO metrics (experiment_id, step, layer_name, metric_name, value, is_validation) VALUES (?, ?, ?, ?, ?, ?)",
-                    (experiment_id, step, layer_name, metric_name, val_f, is_validation)
-                )
+                # Prepare for DB batching
+                db_entries.append((experiment_id, step, layer_name, metric_name, val_f, is_validation))
 
                 # JSON Streaming
                 if "json" in self.log_types:
                     self._stream_json({"step": step, "layer": layer_name, "metric": metric_name, "value": val_f, "is_validation": is_validation})
                 
-                # CSV Streaming
-                if "csv" in self.log_types:
-                    with open(self.csv_path, 'a') as f:
-                        f.write(f"{step},{layer_name},{metric_name},{val_f},{is_validation},{timestamp}\n")
+                # CSV Streaming - using persistent handle
+                if self.csv_handle:
+                    self.csv_handle.write(f"{step},{layer_name},{metric_name},{val_f},{is_validation},{timestamp}\n")
         
-        self.conn.commit()
+        if db_entries:
+            cursor.executemany(
+                "INSERT INTO metrics (experiment_id, step, layer_name, metric_name, value, is_validation) VALUES (?, ?, ?, ?, ?, ?)",
+                db_entries
+            )
+            if commit:
+                self.conn.commit()
 
-    def log_projections(self, step: int, layer_name: str, points: np.ndarray, cluster_ids: Optional[np.ndarray] = None):
+    def log_projections(self, step: int, layer_name: str, points: np.ndarray, cluster_ids: Optional[np.ndarray] = None, commit: bool = True):
         """Store 3D projections in the database."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
@@ -190,11 +210,13 @@ class MetricStorage:
             cid = int(cluster_ids[i]) if cluster_ids is not None else None
             data.append((experiment_id, step, layer_name, i, float(point[0]), float(point[1]), float(point[2]), cid))
 
-        cursor.executemany(
-            "INSERT INTO projections (experiment_id, step, layer_name, point_index, x, y, z, cluster_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            data
-        )
-        self.conn.commit()
+        if data:
+            cursor.executemany(
+                "INSERT INTO projections (experiment_id, step, layer_name, point_index, x, y, z, cluster_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                data
+            )
+            if commit:
+                self.conn.commit()
 
     def _stream_json(self, entry: Dict):
         """Append an entry to the JSON file by reading and rewriting (basic implementation)."""

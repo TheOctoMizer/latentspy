@@ -37,7 +37,7 @@ def run_experiment():
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 8
     NUM_EPOCHS = 3
-    VAL_INTERVAL = 100
+    VAL_INTERVAL = 500  # Raised from 100 — validation every 500 steps keeps the queue clear
     SAMPLE_INTERVAL = 200
 
     print(f"=== {EXPERIMENT_NAME} ===")
@@ -92,7 +92,8 @@ def run_experiment():
         dashboard=True,
         metric_kwargs={"patchiness": {"k": 16}},
         val_metric_kwargs={"patchiness": {"k": 256}},
-        alert_warmup_steps=500
+        alert_warmup_steps=500,
+        deep_metric_interval=5  # Deep metrics every 5 sampled=every 1000 training steps
     )
 
     optimizer = torch.optim.AdamW(

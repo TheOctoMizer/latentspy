@@ -1,11 +1,30 @@
 import torch
 import torch.nn as nn
 import multiprocessing
+import threading
+import queue
+import time
 from typing import List, Union, Optional, Dict, Any
 from . import metrics
 from .hooks import register_hooks
 from .storage import get_storage
 from .metrics.projection import project_to_3d
+
+# Metrics that run every sampled step — lightweight, O(N), best for early-warning detection
+_FAST_METRICS = frozenset([
+    "activation_norm",
+    "sparsity",
+    "kurtosis",
+    "cosine_similarity",
+])
+
+# Metrics that run only on deep steps — involve SVD/KMeans, expensive but essential for structural diagnostics
+_DEEP_METRICS = frozenset([
+    "effective_rank",
+    "eigenvalue_early_enrichment",
+    "patchiness",
+    "reconstruction",
+])
 
 class LatentMonitor:
     def __init__(
@@ -23,7 +42,8 @@ class LatentMonitor:
         dashboard_port: int = 8000,
         metric_kwargs=None,
         val_metric_kwargs=None,
-        alert_warmup_steps: int = 0
+        alert_warmup_steps: int = 0,
+        deep_metric_interval: int = 10
     ):
         self.model = model
         self.layers = layers
@@ -39,6 +59,8 @@ class LatentMonitor:
         self.metric_kwargs = metric_kwargs or {}
         self.val_metric_kwargs = val_metric_kwargs or {}
         self.alert_warmup_steps = alert_warmup_steps
+        self.deep_metric_interval = deep_metric_interval  # Every N *sampled* steps, run deep metrics
+        self._sampled_step = 0  # Tracks how many samples have been taken
         self.server_process = None
         
         if self.dashboard:
@@ -61,6 +83,17 @@ class LatentMonitor:
         self.CLR_BOLD = "\033[1m"
         
         self.storage = get_storage(experiment_name, log_type=log_type)
+        
+        # Performance: Two separate background threads
+        # 1. Fast worker: handles scalars and training-step metrics (must stay real-time)
+        self._queue = queue.Queue(maxsize=2000)
+        # 2. Val worker: handles slow validation (k=256 KMeans etc.), completely isolated
+        self._val_queue = queue.Queue(maxsize=50)
+        self._stop_event = threading.Event()
+        self._worker_thread = threading.Thread(target=self._worker, daemon=True, name="LatentSpy-Fast")
+        self._val_worker_thread = threading.Thread(target=self._val_worker, daemon=True, name="LatentSpy-Val")
+        self._worker_thread.start()
+        self._val_worker_thread.start()
 
     def __repr__(self):
         status = "ENABLED" if self.activations["__enabled__"] else "IDLE"
@@ -127,9 +160,10 @@ class LatentMonitor:
             return "attn" in name.lower() or "mlp" in name.lower()
         return name in self.layers
 
-    def _check_health(self, layer_name, metrics_dict, act_tensor=None):
+    def _check_health(self, layer_name, metrics_dict, step=None):
         """Check metrics against health thresholds and issue colored warnings."""
-        if self.global_step < self.alert_warmup_steps:
+        step = step or self.global_step
+        if step < self.alert_warmup_steps:
             return
             
         warnings = []
@@ -193,71 +227,154 @@ class LatentMonitor:
                 warnings.append((f"High reconstruction skew in {layer_name} (RS={rs:.1f}). Non-uniform cluster quality.", "WARNING"))
 
         for msg, level in warnings:
-            self.storage.log_alert(self.global_step, layer_name, level, msg)
+            self.storage.log_alert(step, layer_name, level, msg)
             
             warn_key = f"{layer_name}_{msg}"
-            if warn_key not in self._health_states or (self.global_step - self._health_states[warn_key] >= self.alert_interval):
-                self._health_states[warn_key] = self.global_step
+            if warn_key not in self._health_states or (step - self._health_states[warn_key] >= self.alert_interval):
+                self._health_states[warn_key] = step
                 color = self.CLR_RED if level == "CRITICAL" else self.CLR_YEL
                 prefix = f"[{level}]"
                 print(f"{color}{self.CLR_BOLD}{prefix} {msg}{self.CLR_END}")
 
-    def compute(self):
-        results = {}
-        if len(self.activations) <= 1:
-            return results
-
-        for name, act in self.activations.items():
-            if name == "__enabled__": continue
-            
-            results[name] = {}
-            for metric_name in self.metrics:
-                metric_fn = getattr(metrics, metric_name, None)
-                if metric_fn:
-                    kwargs = self.metric_kwargs.get(metric_name, {})
-                    val = metric_fn(act, **kwargs)
-
-                    if self.distributed and torch.distributed.is_initialized():
-                        tensor_val = torch.tensor(val, device=act.device)
-                        torch.distributed.all_reduce(tensor_val, op=torch.distributed.ReduceOp.SUM)
-                        val = (tensor_val / torch.distributed.get_world_size()).item()
-                    
-                    if isinstance(val, dict):
-                        results[name].update(val)
-                    else:
-                        results[name][metric_name] = val
-                else:
-                    if metric_name not in self._warned_metrics:
-                        print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
-                        self._warned_metrics.add(metric_name)
-            
-            self._check_health(name, results[name], act)
-            
-        return results
-
     def log(self):
-        if self.activations.get("__enabled__", False):
-            results = self.compute()
-            if results:
-                self.storage.update(results, step=self.global_step, is_validation=False)
-                
-                for name, act in self.activations.items():
-                    if name == "__enabled__": continue
-                    if "patchiness" in self.metrics:
-                        try:
-                            projected = project_to_3d(act, max_points=500)
-                            self.storage.log_projections(self.global_step, name, projected)
-                        except Exception as e:
-                            print(f"Error computing 3D projection for {name}: {e}")
+        """
+        Push a snapshot of current activations to the background worker for processing.
+        This is now non-blocking to training.
+        """
+        if not self.activations.get("__enabled__", False):
+            return {}
 
-                self._last_results = results
-                self.clear() 
+        # Capture snapshots immediately while activations are fresh
+        # We must clone to CPU here to release GPU memory and avoid synchronization later
+        snapshots = {}
+        for name, act in self.activations.items():
+            if name != "__enabled__" and isinstance(act, torch.Tensor):
+                snapshots[name] = act.detach().cpu().clone()
         
-        combined_results = self._last_results.copy()
-        for layer_name, metrics in self._last_val_results.items():
-            combined_results[f"val_{layer_name}"] = metrics
+        if not snapshots:
+            return {}
+
+        self._sampled_step += 1
+        is_deep = (self._sampled_step % self.deep_metric_interval == 0)
+
+        try:
+            self._queue.put_nowait({
+                "type": "log",
+                "step": self.global_step,
+                "snapshots": snapshots,
+                "is_deep": is_deep
+            })
+        except queue.Full:
+            # Skip if worker is too far behind
+            pass
+
+        self.clear()
+        return {} # Results are now computed asynchronously
+
+    def _worker(self):
+        """Fast worker: handles scalars and training-step metrics. Must stay real-time."""
+        uncommitted_tasks = 0
+        MAX_UNCOMMITTED = 20
+        
+        while not self._stop_event.is_set():
+            try:
+                task = self._queue.get(timeout=1.0)
+                if task["type"] == "stop":
+                    break
+
+                # Use commit=False for all updates in the worker loop
+                if task["type"] == "log":
+                    self._process_log(task["step"], task["snapshots"], task.get("is_deep", True), commit=False)
+                elif task["type"] == "scalar":
+                    self._process_scalar(task["name"], task["value"], task["step"], commit=False)
+
+                uncommitted_tasks += 1
+                self._queue.task_done()
+
+                if uncommitted_tasks >= MAX_UNCOMMITTED or self._queue.empty():
+                    self.storage.flush()
+                    uncommitted_tasks = 0
+
+            except queue.Empty:
+                if uncommitted_tasks > 0:
+                    self.storage.flush()
+                    uncommitted_tasks = 0
+                continue
+            except Exception as e:
+                print(f"LatentSpy Worker Error: {e}")
+
+    def _val_worker(self):
+        """Dedicated validation worker — runs heavy KMeans/SVD without blocking the fast worker."""
+        while not self._stop_event.is_set():
+            try:
+                task = self._val_queue.get(timeout=1.0)
+                if task["type"] == "stop":
+                    break
+                if task["type"] == "val":
+                    self._process_val(task["step"], task["snapshots"], commit=True)
+                self._val_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"LatentSpy Val-Worker Error: {e}")
+
+
+    def _process_scalar(self, name, value, step, commit=True):
+        """Process a scalar metric in the background thread."""
+        results = {"__scalars__": {name: value}}
+        
+        if name.lower() == "loss":
+            import math
+            try:
+                results["__scalars__"]["perplexity"] = math.exp(value)
+            except OverflowError:
+                results["__scalars__"]["perplexity"] = float('inf')
                 
-        return combined_results
+        self.storage.update(results, step=step, is_validation=False, commit=commit)
+
+    def _process_log(self, step, snapshots, is_deep: bool = True, commit: bool = True):
+        """Internal method to compute metrics for a training step.
+        
+        Args:
+            step: Training step count.
+            snapshots: Dict of layer_name -> activation tensor (on CPU).
+            is_deep: If True, compute ALL metrics (fast + deep). If False, only compute fast metrics.
+        """
+        results = {}
+        for name, act in snapshots.items():
+            layer_results = {}
+            for metric in self.metrics:
+                # Two-tier metric system: skip deep metrics on non-deep steps
+                if not is_deep and metric in _DEEP_METRICS:
+                    continue
+
+                metric_fn = getattr(metrics, metric)
+                if not metric_fn: continue
+                
+                kwargs = self.metric_kwargs.get(metric, {})
+                try:
+                    val = metric_fn(act, **kwargs)
+                    if isinstance(val, dict):
+                        layer_results.update(val)
+                    else:
+                        layer_results[metric] = val
+                except Exception as e:
+                    print(f"Error computing {metric} for {name}: {e}")
+            
+            if layer_results:
+                results[name] = layer_results
+                self._check_health(name, layer_results, step=step)
+
+            # 3D Projection: only on deep steps (expensive PCA)
+            if is_deep and "patchiness" in self.metrics:
+                try:
+                    proj = project_to_3d(act)
+                    self.storage.log_projections(step, name, proj, cluster_ids=None, commit=commit)
+                except Exception as e:
+                     print(f"Error computing projection for {name}: {e}")
+
+        self._last_results = results
+        self.storage.update(results, step=step, is_validation=False, commit=commit)
 
     def clear(self):
         enabled = self.activations.get("__enabled__", True)
@@ -266,23 +383,22 @@ class LatentMonitor:
 
     def log_scalar(self, name: str, value: float):
         """
-        Log a scalar metric (e.g. loss, learning rate) directly to storage.
-        
-        Args:
-            name (str): Name of the metric.
-            value (float): Value to log.
+        Push a scalar metric to the background worker for asynchronous logging.
+        Throttled to every 10 steps for non-critical scalars.
         """
-        results = {"__scalars__": {name: value}}
-        
-        # Auto-calculate perplexity if loss is provided
-        if name.lower() == "loss":
-            import math
-            try:
-                results["__scalars__"]["perplexity"] = math.exp(value)
-            except OverflowError:
-                results["__scalars__"]["perplexity"] = float('inf')
-                
-        self.storage.update(results, step=self.global_step, is_validation=False)
+        # Always log 'loss' but throttle other scalars like 'lr' to reduce task pressure
+        if name.lower() != "loss" and self.global_step % 10 != 0:
+            return
+
+        try:
+            self._queue.put_nowait({
+                "type": "scalar",
+                "name": name,
+                "value": value,
+                "step": self.global_step
+            })
+        except queue.Full:
+            pass
 
 
     def start_val(self):
@@ -298,38 +414,80 @@ class LatentMonitor:
         self.val_activations["__enabled__"] = False
 
     def log_val(self):
-        """Compute metrics over the full accumulated validation buffer."""
-        results = {}
+        """
+        Push validation snapshots (list of tensors) to the background worker.
+        Does NOT concatenate or clone on the main thread to avoid GPU stalls.
+        """
+        if not self.val_activations.get("__enabled__", False):
+            return {}
+
+        # Just move the list pointers. Shallow copy is fast.
+        snapshots = {}
         for name, act_list in self.val_activations.items():
-            if name == "__enabled__":
-                continue
-            act = torch.cat(act_list, dim=0)
-            results[name] = {}
-            for metric_name in self.metrics:
-                metric_fn = getattr(metrics, metric_name, None)
-                if metric_fn:
-                    kwargs = self.val_metric_kwargs.get(metric_name, self.metric_kwargs.get(metric_name, {}))
-                    val = metric_fn(act, **kwargs)
-                    if isinstance(val, dict):
-                        results[name].update(val)
-                    else:
-                        results[name][metric_name] = val
-                else:
-                    if metric_name not in self._warned_metrics:
-                        print(f"Warning: Metric '{metric_name}' not found in latentspy.metrics")
-                        self._warned_metrics.add(metric_name)
+            if name != "__enabled__" and isinstance(act_list, list) and len(act_list) > 0:
+                snapshots[name] = act_list 
 
-        if results:
-            self.storage.update(results, step=self.global_step, is_validation=True)
-            # Run health checks on val results too (respects warmup)
-            if self.global_step >= self.alert_warmup_steps:
-                for name, metrics_dict in results.items():
-                    self._check_health(f"val_{name}", metrics_dict)
+        if snapshots:
+            try:
+                # Route to the DEDICATED val worker to avoid blocking the fast metric worker
+                self._val_queue.put_nowait({
+                    "type": "val",
+                    "step": self.global_step,
+                    "snapshots": snapshots
+                })
+            except queue.Full:
+                pass
 
-        # Clear the buffer
+        # Clear local buffer but keep enabled
         self.val_activations.clear()
-        self.val_activations["__enabled__"] = False
-        return results
+        self.val_activations["__enabled__"] = True
+        return {}
+
+    def _process_val(self, step, snapshots, commit=True):
+        """Internal method to compute metrics for a validation round asynchronously."""
+        results = {}
+        for name, act_list in snapshots.items():
+            try:
+                # 1. Concatenate on GPU (async) then move to CPU (sync point in worker only)
+                with torch.no_grad():
+                    # Move to CPU first if total tokens are massive to avoid OOM on tiny GPUs
+                    # Or cat and then move. Cat on device is usually faster.
+                    full_act = torch.cat(act_list, dim=0).detach()
+                    
+                    # 2. Sub-sample tokens if validation set is massive (e.g. > 10,000 tokens)
+                    # This keeps KMeans and SVD fast in the background.
+                    max_val_tokens = 10000 
+                    n_tokens = full_act.size(0)
+                    if n_tokens > max_val_tokens:
+                        indices = torch.randperm(n_tokens)[:max_val_tokens]
+                        full_act = full_act[indices]
+                    
+                    act = full_act.cpu().clone()
+                    del full_act
+                    
+                layer_results = {}
+                for metric in self.metrics:
+                    metric_fn = getattr(metrics, metric)
+                    if not metric_fn: continue
+                    
+                    kwargs = self.val_metric_kwargs.get(metric, self.metric_kwargs.get(metric, {}))
+                    try:
+                        val = metric_fn(act, **kwargs)
+                        if isinstance(val, dict):
+                            layer_results.update(val)
+                        else:
+                            layer_results[metric] = val
+                    except Exception as e:
+                        print(f"Error computing {metric} (val) for {name}: {e}")
+                
+                if layer_results:
+                    results[name] = layer_results
+                    self._check_health(name, layer_results, step=step)
+            except Exception as e:
+                print(f"Error processing validation snapshot for {name}: {e}")
+        
+        self._last_val_results = results
+        self.storage.update(results, step=step, is_validation=True, commit=commit)
 
     def _start_dashboard(self):
         """Start the dashboard server in a background process."""
@@ -343,6 +501,19 @@ class LatentMonitor:
         print(f"LatentSpy Dashboard started at http://localhost:{self.dashboard_port}")
 
     def remove(self):
+        """Stop dashboard server and background threads, and remove hooks."""
+        self._stop_event.set()
+        # Signal both workers to stop
+        for q in [self._queue, self._val_queue]:
+            if hasattr(self, '_queue') or hasattr(self, '_val_queue'):
+                try:
+                    q.put({"type": "stop"}, block=False)
+                except:
+                    pass
+        
+        if hasattr(self, 'storage'):
+            self.storage.close()
+
         if self.server_process and self.server_process.is_alive():
             self.server_process.terminate()
             self.server_process.join(timeout=1)
@@ -351,4 +522,3 @@ class LatentMonitor:
         
         for h in self.handles:
             h.remove()
-        
