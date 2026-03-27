@@ -49,8 +49,8 @@ def run_experiment():
     print("\nLoading dataset...")
     try:
         dataset = load_dataset("roneneldan/TinyStories", streaming=False, split="train")
-        train_dataset = dataset.select(range(10000))
-        val_dataset = dataset.select(range(10000, 12000))
+        train_dataset = dataset.select(range(100000))
+        val_dataset = dataset.select(range(100000, 102000))
     except Exception as e:
         print(f"Error loading dataset: {e}")
         sys.exit(1)
