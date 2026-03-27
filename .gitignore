@@ -15,3 +15,6 @@ wheels/
 
 # Runs
 .latentspy
+
+# Models
+experiments/models
