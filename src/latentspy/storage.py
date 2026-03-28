@@ -171,11 +171,17 @@ class MetricStorage:
         
         timestamp = datetime.now().isoformat()
         
+        _MAX_HISTORY = 500  # Cap in-memory history; DB is the source of truth for full data
+
         db_entries = []
         for layer_name, metrics in results.items():
             for metric_name, value in metrics.items():
                 val_f = float(value)
-                self.history[layer_name][metric_name].append((step, val_f))
+                series = self.history[layer_name][metric_name]
+                series.append((step, val_f))
+                # Trim to the last _MAX_HISTORY entries to prevent unbounded RAM growth
+                if len(series) > _MAX_HISTORY:
+                    del series[:-_MAX_HISTORY]
                 
                 # Prepare for DB batching
                 db_entries.append((experiment_id, step, layer_name, metric_name, val_f, is_validation))

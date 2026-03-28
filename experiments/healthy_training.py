@@ -37,7 +37,7 @@ def run_experiment():
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 8
     NUM_EPOCHS = 3
-    VAL_INTERVAL = 500  # Raised from 100 — validation every 500 steps keeps the queue clear
+    VAL_INTERVAL = 750  # Give the val worker enough time between rounds to avoid queue-full skips
     SAMPLE_INTERVAL = 200
 
     print(f"=== {EXPERIMENT_NAME} ===")
@@ -75,14 +75,19 @@ def run_experiment():
         model,
         layers='auto',
         metrics=[
-            ls.Metric.PATCHINESS,
+            # TIER 1 — Fast (every sample_interval steps): O(N), monotonic, actionable thresholds
             ls.Metric.ACTIVATION_NORM,
-            ls.Metric.EFFECTIVE_RANK,
-            ls.Metric.COSINE_SIMILARITY,
-            ls.Metric.EEE,
             ls.Metric.SPARSITY,
             ls.Metric.KURTOSIS,
-            ls.Metric.RECONSTRUCTION
+            ls.Metric.COSINE_SIMILARITY,
+            # TIER 3 — Val-only:
+            #   PP:     r=0.902 with GLUE — crown jewel, needs 10k+ tokens
+            #   RS/RE:  secondary quantization metrics, same KMeans pass as PP
+            #   EEE:    r=-0.557 but NON-MONOTONIC — logged as trend, no alerts
+            # NOTE: effective_rank dropped (redundant with EEE, both SVD-based)
+            ls.Metric.PATCHINESS,
+            ls.Metric.RECONSTRUCTION,
+            ls.Metric.EEE,
         ],
         sample_interval=SAMPLE_INTERVAL,
         val_interval=VAL_INTERVAL,
@@ -131,12 +136,14 @@ def run_experiment():
                 optimizer.step()
 
                 if monitor.should_run_validation():
+                    # 16 batches × 8 × 128 = 16,384 tokens — already above the 10k subsample
+                    # cap in log_val(), so quality is identical to 50 batches but 68% fewer
+                    # model forward passes, keeping the val worker fast enough to not skip rounds.
                     val_batches = []
-                    for _ in range(50):
+                    for _ in range(16):
                         try:
                             val_batch = next(val_iterator)
                         except StopIteration:
-                            # Reset val iterator if exhausted
                             val_iterator = get_batches(val_dataset, tokenizer, batch_size=BATCH_SIZE)
                             val_batch = next(val_iterator)
                         

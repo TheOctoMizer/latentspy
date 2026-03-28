@@ -10,7 +10,6 @@ from .hooks import register_hooks
 from .storage import get_storage
 from .metrics.projection import project_to_3d
 
-# Metrics that run every sampled step — lightweight, O(N), best for early-warning detection
 _FAST_METRICS = frozenset([
     "activation_norm",
     "sparsity",
@@ -18,12 +17,12 @@ _FAST_METRICS = frozenset([
     "cosine_similarity",
 ])
 
-# Metrics that run only on deep steps — involve SVD/KMeans, expensive but essential for structural diagnostics
-_DEEP_METRICS = frozenset([
-    "effective_rank",
-    "eigenvalue_early_enrichment",
+_DEEP_METRICS = frozenset()
+
+_VAL_ONLY_METRICS = frozenset([
     "patchiness",
     "reconstruction",
+    "eigenvalue_early_enrichment",
 ])
 
 class LatentMonitor:
@@ -87,8 +86,10 @@ class LatentMonitor:
         # Performance: Two separate background threads
         # 1. Fast worker: handles scalars and training-step metrics (must stay real-time)
         self._queue = queue.Queue(maxsize=2000)
-        # 2. Val worker: handles slow validation (k=256 KMeans etc.), completely isolated
-        self._val_queue = queue.Queue(maxsize=50)
+        # 2. Val worker: handles slow validation (k=256 KMeans etc.), completely isolated.
+        # IMPORTANT: Keep this small! Each item holds concatenated activation tensors.
+        # A large queue here causes massive memory blowup (e.g. 50 items × 200MB = 10GB).
+        self._val_queue = queue.Queue(maxsize=3)
         self._stop_event = threading.Event()
         self._worker_thread = threading.Thread(target=self._worker, daemon=True, name="LatentSpy-Fast")
         self._val_worker_thread = threading.Thread(target=self._val_worker, daemon=True, name="LatentSpy-Val")
@@ -160,20 +161,20 @@ class LatentMonitor:
             return "attn" in name.lower() or "mlp" in name.lower()
         return name in self.layers
 
-    def _check_health(self, layer_name, metrics_dict, step=None):
-        """Check metrics against health thresholds and issue colored warnings."""
+    def _check_health(self, layer_name, metrics_dict, step=None, is_validation=False):
+        """Check metrics against health thresholds and issue colored warnings.
+        
+        Args:
+            is_validation: Whether this is being called from validation context.
+                           Some metrics (EEE) only produce meaningful alerts on
+                           validation data due to non-monotonic training dynamics
+                           (Marbut et al. 2024).
+        """
         step = step or self.global_step
         if step < self.alert_warmup_steps:
             return
             
         warnings = []
-        
-        if "effective_rank" in metrics_dict:
-            rank = metrics_dict["effective_rank"]
-            if rank < 1.1:
-                warnings.append((f"RANK COLLAPSE DETECTED: {layer_name} rank is {rank:.2f}. Represents total capacity loss.", "CRITICAL"))
-            elif rank < 2.0:
-                warnings.append((f"Low rank detected in {layer_name} (rank={rank:.2f}).", "WARNING"))
 
         if "activation_norm" in metrics_dict:
             norm = metrics_dict["activation_norm"]
@@ -181,22 +182,6 @@ class LatentMonitor:
                 warnings.append((f"ACTIVATION EXPLOSION: {layer_name} norm is {norm:.2e}. Training is likely diverging.", "CRITICAL"))
             elif norm > 1e3:
                 warnings.append((f"High activation norm in {layer_name} (norm={norm:.2e}).", "WARNING"))
-
-        if "patchiness" in metrics_dict:
-            pp = metrics_dict["patchiness"]
-            # 0.0 = Perfectly Uniform (Healthy)
-            # >> 1.0 = Highly Clustered (Anomaly)
-            if pp > 20.0:
-                warnings.append((f"REPRESENTATION COLLAPSE: {layer_name} patchiness is {pp:.2f}. Features are dying or highly redundant.", "CRITICAL"))
-            elif pp > 10.0:
-                warnings.append((f"High representation clustering in {layer_name} (pp={pp:.2f}).", "WARNING"))
-
-        if "eigenvalue_early_enrichment" in metrics_dict:
-            eee = metrics_dict["eigenvalue_early_enrichment"]
-            if eee > 0.60:
-                warnings.append((f"SPECTRAL COLLAPSE: {layer_name} EEE is {eee:.3f}. Variance is concentrated in very few dimensions.", "CRITICAL"))
-            elif eee > 0.45:
-                warnings.append((f"High spectral enrichment in {layer_name} (EEE={eee:.3f}).", "WARNING"))
 
         if "sparsity" in metrics_dict:
             sp = metrics_dict["sparsity"]
@@ -212,14 +197,29 @@ class LatentMonitor:
             elif kurt > 100:
                 warnings.append((f"High kurtosis in {layer_name} (Kurtosis={kurt:.1f}). Strong outlier features detected.", "WARNING"))
 
-        if "reconstruction_error" in metrics_dict:
+        # Patchiness: only meaningful with sufficient token coverage (validation)
+        if "patchiness" in metrics_dict and is_validation:
+            pp = metrics_dict["patchiness"]
+            if pp > 20.0:
+                warnings.append((f"REPRESENTATION COLLAPSE: {layer_name} patchiness is {pp:.2f}. Features are dying or highly redundant.", "CRITICAL"))
+            elif pp > 10.0:
+                warnings.append((f"High representation clustering in {layer_name} (pp={pp:.2f}).", "WARNING"))
+
+        # EEE: logged as a trend metric during validation, but NOT alerted.
+        # Marbut et al. (2024) show EEE has a non-monotonic relationship with
+        # downstream performance — absolute thresholds produce false alarms on
+        # healthy models. Watch the trend on the dashboard instead.
+        # (No alert block for EEE by design.)
+
+        # Reconstruction: only meaningful with sufficient token coverage (validation)
+        if "reconstruction_error" in metrics_dict and is_validation:
             re = metrics_dict["reconstruction_error"]
             if re > 0.6:
                 warnings.append((f"POOR RECONSTRUCTION: {layer_name} RE is {re:.3f}. Latent structure is highly fragmented.", "CRITICAL"))
             elif re > 0.4:
                 warnings.append((f"High reconstruction error in {layer_name} (RE={re:.3f}). Clusters are poorly defined.", "WARNING"))
 
-        if "reconstruction_skew" in metrics_dict:
+        if "reconstruction_skew" in metrics_dict and is_validation:
             rs = metrics_dict["reconstruction_skew"]
             if rs > 8.0:
                 warnings.append((f"EXTREME ERROR SKEW: {layer_name} RS is {rs:.1f}. Some features are significantly under-represented.", "CRITICAL"))
@@ -333,18 +333,25 @@ class LatentMonitor:
         self.storage.update(results, step=step, is_validation=False, commit=commit)
 
     def _process_log(self, step, snapshots, is_deep: bool = True, commit: bool = True):
-        """Internal method to compute metrics for a training step.
+        """Compute training-step metrics (TIER 1 fast + TIER 2 deep only).
+        
+        TIER 3 (VAL_ONLY) metrics — patchiness, reconstruction, EEE — are always
+        skipped here regardless of is_deep. They require validation-scale token
+        coverage (10k+) to be statistically meaningful (Marbut et al. 2024).
         
         Args:
             step: Training step count.
             snapshots: Dict of layer_name -> activation tensor (on CPU).
-            is_deep: If True, compute ALL metrics (fast + deep). If False, only compute fast metrics.
+            is_deep: If True, also compute TIER 2 metrics. If False, TIER 1 only.
         """
         results = {}
         for name, act in snapshots.items():
             layer_results = {}
             for metric in self.metrics:
-                # Two-tier metric system: skip deep metrics on non-deep steps
+                # Never run val-only metrics on training steps
+                if metric in _VAL_ONLY_METRICS:
+                    continue
+                # Skip deep metrics on non-deep steps
                 if not is_deep and metric in _DEEP_METRICS:
                     continue
 
@@ -363,15 +370,7 @@ class LatentMonitor:
             
             if layer_results:
                 results[name] = layer_results
-                self._check_health(name, layer_results, step=step)
-
-            # 3D Projection: only on deep steps (expensive PCA)
-            if is_deep and "patchiness" in self.metrics:
-                try:
-                    proj = project_to_3d(act)
-                    self.storage.log_projections(step, name, proj, cluster_ids=None, commit=commit)
-                except Exception as e:
-                     print(f"Error computing projection for {name}: {e}")
+                self._check_health(name, layer_results, step=step, is_validation=False)
 
         self._last_results = results
         self.storage.update(results, step=step, is_validation=False, commit=commit)
@@ -415,17 +414,38 @@ class LatentMonitor:
 
     def log_val(self):
         """
-        Push validation snapshots (list of tensors) to the background worker.
-        Does NOT concatenate or clone on the main thread to avoid GPU stalls.
+        Push validation snapshots to the background worker.
+        Eagerly concatenates and subsamples tensors HERE on the main thread so
+        the raw accumulated list (potentially 50 batches per layer) is freed
+        immediately, instead of living in the queue for minutes while the val
+        worker is busy. This is the primary fix for the memory blowup.
         """
         if not self.val_activations.get("__enabled__", False):
             return {}
 
-        # Just move the list pointers. Shallow copy is fast.
+        MAX_VAL_TOKENS = 10000  # Cap tokens *before* queuing to bound memory per task
+
         snapshots = {}
         for name, act_list in self.val_activations.items():
-            if name != "__enabled__" and isinstance(act_list, list) and len(act_list) > 0:
-                snapshots[name] = act_list 
+            if name == "__enabled__" or not isinstance(act_list, list) or len(act_list) == 0:
+                continue
+            try:
+                with torch.no_grad():
+                    # Concatenate and immediately free the individual tensors
+                    full_act = torch.cat(act_list, dim=0)  # already on CPU from hooks
+                    # Subsample here so the queued payload is bounded
+                    n_tokens = full_act.size(0)
+                    if n_tokens > MAX_VAL_TOKENS:
+                        indices = torch.randperm(n_tokens, device='cpu')[:MAX_VAL_TOKENS]
+                        full_act = full_act[indices].clone()
+                    else:
+                        full_act = full_act.clone()
+                snapshots[name] = full_act  # single compact tensor, not a list
+            except Exception as e:
+                print(f"LatentSpy: Error pre-processing val snapshot for {name}: {e}")
+            finally:
+                # Explicitly free the list elements to release memory NOW
+                act_list.clear()
 
         if snapshots:
             try:
@@ -436,7 +456,10 @@ class LatentMonitor:
                     "snapshots": snapshots
                 })
             except queue.Full:
-                pass
+                # Val worker is still busy — skip this validation round rather than OOM
+                print(f"LatentSpy: Val queue full at step {self.global_step}, skipping validation round.")
+                for t in snapshots.values():
+                    del t
 
         # Clear local buffer but keep enabled
         self.val_activations.clear()
@@ -444,27 +467,14 @@ class LatentMonitor:
         return {}
 
     def _process_val(self, step, snapshots, commit=True):
-        """Internal method to compute metrics for a validation round asynchronously."""
+        """Internal method to compute metrics for a validation round asynchronously.
+        
+        snapshots is now a dict of layer_name -> single pre-concatenated CPU tensor
+        (the concatenation and subsampling happens in log_val() before queuing).
+        """
         results = {}
-        for name, act_list in snapshots.items():
+        for name, act in snapshots.items():
             try:
-                # 1. Concatenate on GPU (async) then move to CPU (sync point in worker only)
-                with torch.no_grad():
-                    # Move to CPU first if total tokens are massive to avoid OOM on tiny GPUs
-                    # Or cat and then move. Cat on device is usually faster.
-                    full_act = torch.cat(act_list, dim=0).detach()
-                    
-                    # 2. Sub-sample tokens if validation set is massive (e.g. > 10,000 tokens)
-                    # This keeps KMeans and SVD fast in the background.
-                    max_val_tokens = 10000 
-                    n_tokens = full_act.size(0)
-                    if n_tokens > max_val_tokens:
-                        indices = torch.randperm(n_tokens)[:max_val_tokens]
-                        full_act = full_act[indices]
-                    
-                    act = full_act.cpu().clone()
-                    del full_act
-                    
                 layer_results = {}
                 for metric in self.metrics:
                     metric_fn = getattr(metrics, metric)
@@ -482,9 +492,12 @@ class LatentMonitor:
                 
                 if layer_results:
                     results[name] = layer_results
-                    self._check_health(name, layer_results, step=step)
+                    self._check_health(name, layer_results, step=step, is_validation=True)
             except Exception as e:
                 print(f"Error processing validation snapshot for {name}: {e}")
+            finally:
+                # Explicitly free the tensor after processing each layer
+                del act
         
         self._last_val_results = results
         self.storage.update(results, step=step, is_validation=True, commit=commit)
