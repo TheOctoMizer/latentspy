@@ -475,9 +475,10 @@ class LatentMonitor:
                 for t in snapshots.values():
                     del t
 
-        # Clear local buffer but keep enabled
+        # Clear local buffer and fully disable validation mode
         self.val_activations.clear()
-        self.val_activations["__enabled__"] = True
+        self.val_activations["__enabled__"] = False
+        self.in_val_mode = False
         return {}
 
     def _process_val(self, step, snapshots, commit=True):
