@@ -21,7 +21,7 @@ _DEEP_METRICS = frozenset()
 
 _VAL_ONLY_METRICS = frozenset([
     "patchiness",
-    "reconstruction",
+    "reconstruction_metrics",
     "eigenvalue_early_enrichment",
 ])
 
