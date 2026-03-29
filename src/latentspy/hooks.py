@@ -20,12 +20,15 @@ def register_hooks(model, layer_names, activations_dict, val_dict=None):
         def hook(module, input, output):
             actual_output = output[0] if isinstance(output, (tuple, list)) else output
             if val_dict is not None and val_dict.get("__enabled__", False):
-                tensor = actual_output.detach().cpu()
-                if name not in val_dict:
-                    val_dict[name] = []
-                val_dict[name].append(tensor)
+                val_dict.setdefault(name, []).append(actual_output.detach().cpu())
             elif activations_dict.get("__enabled__", True):
-                activations_dict[name] = actual_output.detach()
+                device_type = actual_output.device.type
+                if device_type == "cuda":
+                    # CUDA: keep on device; log() will do a non-blocking async copy
+                    activations_dict[name] = actual_output.detach()
+                else:
+                    # MPS / CPU: move to CPU now to avoid deferred memory growth
+                    activations_dict[name] = actual_output.detach().cpu()
         return hook
 
     for name, module in model.named_modules():

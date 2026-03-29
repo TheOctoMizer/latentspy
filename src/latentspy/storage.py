@@ -291,13 +291,25 @@ class MetricStorage:
         return str(output_path)
 
 
-_global_storage = None
+
+_storage_registry: dict = {}
+
 
 def get_storage(experiment_name: Optional[str] = None, log_type: Union[str, List[str]] = "db") -> MetricStorage:
-    """Get or create the global storage instance."""
-    global _global_storage
-    if _global_storage is None:
-        _global_storage = MetricStorage(experiment_name, log_type)
-    return _global_storage
-
-        
+    """Get or create a MetricStorage instance for the given experiment.
+    
+    Keyed by (experiment_name, log_types) so multiple experiments running in the same
+    process each get their own isolated storage rather than silently sharing one.
+    """
+    global _storage_registry
+    # Normalise the key so ordering of log_type list doesn't matter
+    if isinstance(log_type, str):
+        key_types = frozenset([log_type.lower()])
+    else:
+        key_types = frozenset(t.lower() for t in log_type)
+    # Use a placeholder name for the key lookup only (actual name resolved in MetricStorage)
+    resolved_name = experiment_name or "__default__"
+    cache_key = (resolved_name, key_types)
+    if cache_key not in _storage_registry:
+        _storage_registry[cache_key] = MetricStorage(experiment_name, log_type)
+    return _storage_registry[cache_key]

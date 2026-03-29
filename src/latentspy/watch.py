@@ -56,7 +56,8 @@ def watch(
         dashboard_port=dashboard_port,
         metric_kwargs=metric_kwargs,
         val_metric_kwargs=val_metric_kwargs,
-        alert_warmup_steps=alert_warmup_steps
+        alert_warmup_steps=alert_warmup_steps,
+        deep_metric_interval=deep_metric_interval
     )
     monitor.attach()
     return monitor

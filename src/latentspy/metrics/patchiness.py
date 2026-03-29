@@ -4,52 +4,73 @@ import faiss
 from .activation_utils import prepare_activations_for_faiss, validate_activations_format
 from .clustering import quantize_latent_space, get_cluster_statistics
 
+
+def _center_activations(activations_np: np.ndarray) -> np.ndarray:
+    """Mean-center activations so patchiness reflects geometry, not layer-scale.
+    
+    Without centering, layers with very different activation magnitudes will show
+    artificially different patchiness values purely due to L2 norm differences,
+    not latent-space structure. Mean-centering removes the DC component while
+    preserving relative geometry within the space.
+    """
+    return activations_np - activations_np.mean(axis=0, keepdims=True)
+
+
 def patchiness(activations: torch.Tensor, k: int = 256) -> float:
     """
-    Compute the Patchiness Proportion (PP) of activations.
+    Compute Lloyd's Patchiness Index (PP) of activations.
+
+    PP measures how non-uniformly tokens are distributed across k quantized bins
+    in the latent space. Formally (Lloyd 1967, Eq. 3 in Marbut et al. 2024):
+
+        PP = (m* / m)  where  m* = m + V/m - 1
+           = 1 + V/m² - 1/m
+
+    where m and V are the mean and variance of RAW COUNTS (not normalized densities)
+    per cluster bin. For a perfectly uniform distribution, PP approaches 1.0.
+    For a representation-collapsed space (all tokens in one bin), PP approaches k.
+
+    This metric is validated in the paper with Pearson r=0.902 against GLUE on
+    BERT-small. It requires >= 10k tokens to be statistically meaningful; use only
+    in validation rounds, not per-training-step.
 
     Args:
-        activations (torch.Tensor): Output activations of shape (Batch, Seq, Hidden) or 
-                                  (Batch, ..., Hidden).
-        k (int): Number of bins. Paper default is 256.
+        activations (torch.Tensor): Activations of shape (Batch, Seq, Hidden) or
+                                    any shape where the last dim is Hidden.
+        k (int): Number of quantization bins. Paper default is 256.
 
     Returns:
-        float: The PP score (Fano Factor of cluster densities).
+        float: Lloyd's PP score. ~1.0 for uniform; higher = more patchy (clustered).
     """
-    if hasattr(activations, 'shape'):
-        total_points = activations.flatten(0, -2).shape[0] if activations.dim() > 2 else activations.shape[0]
-        max_k = total_points // 39
-        k = min(k, max_k, total_points // 2)
-        k = max(k, 2)
     try:
         activations_np, hidden_dim = prepare_activations_for_faiss(activations)
         validate_activations_format(activations_np)
-    except Exception as e:
-        X = activations.flatten(1).detach().float()
-        batch_size = X.size(0)
-        k = min(k, batch_size // 2)
-        if k < 2:
-            return 0.0
-        if X.std().item() < 1e-8:
+    except Exception:
+        # Fallback: reshape manually
+        activations_np = activations.flatten(0, -2).detach().cpu().float().numpy().astype('float32')
+        if activations_np.ndim != 2 or activations_np.shape[0] < 4:
             return 1.0
-        return _patchiness_pytorch(X, k)
     
     total_tokens = activations_np.shape[0]
     k = min(k, total_tokens // 2)
     if k < 2:
-        return 0.0
+        return 1.0
 
     if np.std(activations_np) < 1e-8:
-        return 1.0
+        # All representations identical → fully collapsed → PP = k (maximum patchiness)
+        return float(k)
+
+    # Mean-center so geometry is not confounded by layer-level magnitude differences
+    activations_np = _center_activations(activations_np)
 
     try:
         return _patchiness_faiss(activations_np, k)
     except Exception:
-        X = activations.flatten(1).detach().float()
+        X = torch.from_numpy(activations_np)
         return _patchiness_pytorch(X, k)
 
 
-def cluster_activations(activations_np: np.ndarray, k: int, index: faiss.Index) -> tuple[np.ndarray, np.ndarray]:
+def cluster_activations(activations_np: np.ndarray, k: int, index: faiss.Index) -> tuple:
     """
     Perform k-means clustering on activation vectors using FAISS.
 
@@ -61,7 +82,7 @@ def cluster_activations(activations_np: np.ndarray, k: int, index: faiss.Index) 
     Returns:
         tuple containing:
         - centroids: numpy array of cluster centers with shape (k, hidden_dim)
-        - bin_indices: numpy array of cluster assignments for each input vector with shape(num_vectors, )
+        - bin_indices: numpy array of cluster assignments for each input vector
     """
     hidden_dim = activations_np.shape[1]
 
@@ -77,54 +98,59 @@ def cluster_activations(activations_np: np.ndarray, k: int, index: faiss.Index) 
 
     return centroids, bin_indices
 
+
 def _patchiness_faiss(activations_np: np.ndarray, k: int) -> float:
-    """FAISS-based clustering implementation using the dedicated clustering function."""
+    """FAISS k-means implementation of Lloyd's Patchiness Index.
+    
+    Uses raw bin counts (not normalized proportions) to match the ecological
+    definition of Lloyd (1967) and Equation 3 in Marbut et al. (2024).
+    """
     cluster_labels, centroids, clustering_info = quantize_latent_space(activations_np, k)
     cluster_stats = get_cluster_statistics(cluster_labels, k)
-    densities = cluster_stats['cluster_densities']
-    mean_density = densities.mean()
-    var_density = densities.var()
-    
-    if mean_density < 1e-10:
-        return 0.0
 
-    m = mean_density
-    V = var_density
+    # Use raw integer counts (not normalized densities) — this is what Lloyd's
+    # formula requires. For N tokens in k equal bins: m = N/k, V ≈ 0 → PP ≈ 1.0.
+    counts = cluster_stats['cluster_counts'].astype(np.float64)
+    m = counts.mean()  # mean tokens per bin
+    V = counts.var()   # variance of token counts
     
-    # Fano Factor (V/m) normalized for densities
-    # For counts c = d * N, V_c = V * N^2, m_c = m * N.
-    # F = V_c / m_c = (V * N^2) / (m * N) = (V/m) * N.
-    # However, to keep it independent of N (batch size), we use V/m^2 which is 0 for uniform.
     if m < 1e-10:
-        return 0.0
-        
-    # Relative Variance (squared coefficient of variation)
-    # 0 for uniform, k-1 for totally collapsed.
-    return float(V / (m**2 + 1e-10))
+        return 1.0
+
+    # Lloyd's Patchiness Index: PP = 1 + V/m² - 1/m
+    # - PP = 1.0 for a Poisson/uniform process (V ≈ m)
+    # - PP → k  for complete collapse (all tokens in one bin)
+    PP = 1.0 + V / (m ** 2 + 1e-10) - 1.0 / (m + 1e-10)
+    return float(max(PP, 0.0))
 
 
 def _patchiness_pytorch(X: torch.Tensor, k: int) -> float:
-    """PyTorch fallback implementation."""
-    batch_size = X.size(0)
+    """PyTorch fallback implementation of Lloyd's Patchiness Index."""
+    n = X.shape[0]
+    k = min(k, n // 2)
+    if k < 2:
+        return 1.0
     
-    centroid_indices = torch.randperm(batch_size)[:k]
-    centroids = X[centroid_indices]
+    centroid_indices = torch.randperm(n)[:k]
+    centroids = X[centroid_indices].clone()
     
-    dists = torch.cdist(X, centroids)
-    bin_indices = torch.argmin(dists, dim=1)
+    for _ in range(20):  # match FAISS niter=20
+        dists = torch.cdist(X.float(), centroids.float())
+        bin_indices = torch.argmin(dists, dim=1)
+        new_centroids = torch.zeros_like(centroids)
+        counts_vec = torch.zeros(k, device=X.device)
+        new_centroids.index_add_(0, bin_indices, X.float())
+        counts_vec.index_add_(0, bin_indices, torch.ones(n, device=X.device))
+        mask = counts_vec > 0
+        new_centroids[mask] = new_centroids[mask] / counts_vec[mask].unsqueeze(1)
+        centroids = new_centroids
+    
     counts = torch.bincount(bin_indices, minlength=k).float()
-    densities = counts / batch_size
-    mean_density = densities.mean()
-    var_density = densities.var()
-    
-    if mean_density < 1e-10:
-        return 0.0
-    
-    m = mean_density
-    V = var_density
+    m = counts.mean().item()
+    V = counts.var().item()
     
     if m < 1e-10:
-        return 0.0
+        return 1.0
     
-    # Relative Variance
-    return float(V / (m**2 + 1e-10))
+    PP = 1.0 + V / (m ** 2 + 1e-10) - 1.0 / (m + 1e-10)
+    return float(max(PP, 0.0))

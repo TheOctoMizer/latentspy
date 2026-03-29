@@ -47,6 +47,13 @@ class LatentMonitor:
         self.model = model
         self.layers = layers
         self.metrics = metrics or ["activation_norm"]
+        
+        try:
+            device_type = next(self.model.parameters()).device.type
+            if device_type == "xla":
+                raise RuntimeError("LatentSpy does not support TPU/XLA devices. The hooking mechanism heavily disrupts XLA graph compilation. Please use CUDA, MPS, or CPU.")
+        except StopIteration:
+            pass
         self.sample_interval = sample_interval
         self.val_interval = val_interval
         self.distributed = distributed
@@ -179,31 +186,36 @@ class LatentMonitor:
         if "activation_norm" in metrics_dict:
             norm = metrics_dict["activation_norm"]
             if norm > 1e6:
-                warnings.append((f"ACTIVATION EXPLOSION: {layer_name} norm is {norm:.2e}. Training is likely diverging.", "CRITICAL"))
+                warnings.append((f"ACTIVATION EXPLOSION: {layer_name} norm={norm:.2e}. Training is likely diverging.", "CRITICAL", "norm_explosion"))
             elif norm > 1e3:
-                warnings.append((f"High activation norm in {layer_name} (norm={norm:.2e}).", "WARNING"))
+                warnings.append((f"High activation norm in {layer_name} (norm={norm:.2e}).", "WARNING", "norm_high"))
 
         if "sparsity" in metrics_dict:
             sp = metrics_dict["sparsity"]
             if sp > 0.95:
-                warnings.append((f"REPRESENTATION DEATH: {layer_name} sparsity is {sp:.2f}. >95% of units are inactive.", "CRITICAL"))
+                warnings.append((f"REPRESENTATION DEATH: {layer_name} sparsity={sp:.2f}. >95% of units are inactive.", "CRITICAL", "sparsity_death"))
             elif sp > 0.8:
-                warnings.append((f"High sparsity in {layer_name} (Sparsity={sp:.2f}). Possible over-pruning.", "WARNING"))
+                warnings.append((f"High sparsity in {layer_name} (Sparsity={sp:.2f}). Possible over-pruning.", "WARNING", "sparsity_high"))
 
         if "kurtosis" in metrics_dict:
             kurt = metrics_dict["kurtosis"]
             if kurt > 1000:
-                warnings.append((f"EXTREME OUTLIERS: {layer_name} kurtosis is {kurt:.1f}. Numerical instability likely.", "CRITICAL"))
+                warnings.append((f"EXTREME OUTLIERS: {layer_name} kurtosis={kurt:.1f}. Numerical instability likely.", "CRITICAL", "kurtosis_extreme"))
             elif kurt > 100:
-                warnings.append((f"High kurtosis in {layer_name} (Kurtosis={kurt:.1f}). Strong outlier features detected.", "WARNING"))
+                warnings.append((f"High kurtosis in {layer_name} (Kurtosis={kurt:.1f}). Strong outlier features detected.", "WARNING", "kurtosis_high"))
 
         # Patchiness: only meaningful with sufficient token coverage (validation)
+        # Lloyd's PP scale: ~1.0 for uniform, higher for clustered/collapsed.
+        # From Marbut et al. (2024) Fig 3: healthy BERT-small lands in 1.02–1.06;
+        # severely degraded models approach 1.00 (too uniform) or much higher (collapsed).
+        # We alert on very HIGH PP (representation collapse) only; for the low end,
+        # track the EEE trend on the dashboard instead of hard-thresholding.
         if "patchiness" in metrics_dict and is_validation:
             pp = metrics_dict["patchiness"]
-            if pp > 20.0:
-                warnings.append((f"REPRESENTATION COLLAPSE: {layer_name} patchiness is {pp:.2f}. Features are dying or highly redundant.", "CRITICAL"))
+            if pp > 50.0:
+                warnings.append((f"REPRESENTATION COLLAPSE: {layer_name} PP={pp:.2f}. Most tokens collapsed to one region.", "CRITICAL", "patchiness_collapse"))
             elif pp > 10.0:
-                warnings.append((f"High representation clustering in {layer_name} (pp={pp:.2f}).", "WARNING"))
+                warnings.append((f"High patchiness in {layer_name} (PP={pp:.2f}). Latent space strongly non-uniform.", "WARNING", "patchiness_high"))
 
         # EEE: logged as a trend metric during validation, but NOT alerted.
         # Marbut et al. (2024) show EEE has a non-monotonic relationship with
@@ -215,21 +227,23 @@ class LatentMonitor:
         if "reconstruction_error" in metrics_dict and is_validation:
             re = metrics_dict["reconstruction_error"]
             if re > 0.6:
-                warnings.append((f"POOR RECONSTRUCTION: {layer_name} RE is {re:.3f}. Latent structure is highly fragmented.", "CRITICAL"))
+                warnings.append((f"POOR RECONSTRUCTION: {layer_name} RE={re:.3f}. Latent structure is highly fragmented.", "CRITICAL", "reconstruction_error_high"))
             elif re > 0.4:
-                warnings.append((f"High reconstruction error in {layer_name} (RE={re:.3f}). Clusters are poorly defined.", "WARNING"))
+                warnings.append((f"High reconstruction error in {layer_name} (RE={re:.3f}). Clusters poorly defined.", "WARNING", "reconstruction_error_warn"))
 
         if "reconstruction_skew" in metrics_dict and is_validation:
             rs = metrics_dict["reconstruction_skew"]
             if rs > 8.0:
-                warnings.append((f"EXTREME ERROR SKEW: {layer_name} RS is {rs:.1f}. Some features are significantly under-represented.", "CRITICAL"))
+                warnings.append((f"EXTREME ERROR SKEW: {layer_name} RS={rs:.1f}. Some features significantly under-represented.", "CRITICAL", "recon_skew_high"))
             elif rs > 4.0:
-                warnings.append((f"High reconstruction skew in {layer_name} (RS={rs:.1f}). Non-uniform cluster quality.", "WARNING"))
+                warnings.append((f"High reconstruction skew in {layer_name} (RS={rs:.1f}). Non-uniform cluster quality.", "WARNING", "recon_skew_warn"))
 
-        for msg, level in warnings:
+        for msg, level, pathology_key in warnings:
             self.storage.log_alert(step, layer_name, level, msg)
             
-            warn_key = f"{layer_name}_{msg}"
+            # Dedup key: (layer, level, pathology_type) — NOT the message text,
+            # which embeds the metric value and would create a new key every step.
+            warn_key = f"{layer_name}_{level}_{pathology_key}"
             if warn_key not in self._health_states or (step - self._health_states[warn_key] >= self.alert_interval):
                 self._health_states[warn_key] = step
                 color = self.CLR_RED if level == "CRITICAL" else self.CLR_YEL
@@ -516,13 +530,12 @@ class LatentMonitor:
     def remove(self):
         """Stop dashboard server and background threads, and remove hooks."""
         self._stop_event.set()
-        # Signal both workers to stop
+        # Signal both workers to stop gracefully
         for q in [self._queue, self._val_queue]:
-            if hasattr(self, '_queue') or hasattr(self, '_val_queue'):
-                try:
-                    q.put({"type": "stop"}, block=False)
-                except:
-                    pass
+            try:
+                q.put_nowait({"type": "stop"})
+            except Exception:
+                pass
         
         if hasattr(self, 'storage'):
             self.storage.close()
