@@ -3,1189 +3,673 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LatentSpy - Real-time ML Monitoring</title>
+    <title>LatentSpy Mission Control</title>
+    <!-- Tailwind CSS for Dark Premium Theme -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#141d2e',
+                            900: '#0f172a',
+                            950: '#0b0f19',
+                        },
+                        cyber: {
+                            cyan: '#06b6d4',
+                            pink: '#ec4899',
+                            yellow: '#facc15'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace']
+                    }
+                }
+            }
         }
-        
+    </script>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <!-- ChartJS and Plotly -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- GSAP for Smooth Animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <style>
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background-color: #0b0f19;
+            background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #0b0f19 50%);
             color: #f1f5f9;
         }
-        
-        .glass {
-            background: rgba(30, 41, 59, 0.5);
-            backdrop-filter: blur(10px);
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
             border: 1px solid rgba(148, 163, 184, 0.1);
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+        }
+
+        .terminal-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+
+        .nav-tab.active {
+            border-bottom: 2px solid #06b6d4;
+            color: #e2e8f0;
+            background: linear-gradient(to top, rgba(6, 182, 212, 0.1), transparent);
         }
         
-        .metric-card {
+        .pulse-red { animation: pulseRed 2s infinite; }
+        .pulse-yellow { animation: pulseYellow 2s infinite; }
+        
+        @keyframes pulseRed {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        @keyframes pulseYellow {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+
+        .alert-entry {
+            border-left: 3px solid;
+            background: linear-gradient(to right, rgba(0,0,0,0.5), transparent);
             transition: all 0.3s ease;
-            cursor: pointer;
         }
+        .alert-CRITICAL { border-left-color: #ef4444; color: #fca5a5; }
+        .alert-WARNING { border-left-color: #f59e0b; color: #fde68a; }
         
-        .metric-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-        
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .chart-container {
-            position: relative;
-            height: 300px;
-        }
-        
-        .status-online {
-            background: linear-gradient(45deg, #10b981, #34d399);
-        }
-        
-        .status-offline {
-            background: linear-gradient(45deg, #ef4444, #f87171);
-        }
-        
-        .tab-active {
-            background: linear-gradient(45deg, #3b82f6, #60a5fa);
-            color: white;
-        }
-        
-        .metric-trend-up { color: #10b981; }
-        .metric-trend-down { color: #ef4444; }
-        
-        .alert-critical {
-            border-left: 4px solid #ef4444;
-            background: rgba(239, 68, 68, 0.1);
-        }
-        
-        .alert-warning {
-            border-left: 4px solid #f59e0b;
-            background: rgba(245, 158, 11, 0.1);
-        }
-        
-        .alert-info {
-            border-left: 4px solid #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
-        }
+        /* Utility hiding class */
+        .hidden-pane { display: none !important; }
     </style>
 </head>
-<body>
-    <!-- Header -->
-    <header class="glass border-b border-gray-700 sticky top-0 z-50">
-        <div class="container mx-auto px-4 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <i data-lucide="activity" class="w-8 h-8 text-blue-400"></i>
-                        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                            LatentSpy
-                        </h1>
-                    </div>
-                    <div id="connectionStatus" class="flex items-center space-x-2 px-3 py-1 rounded-full status-offline">
-                        <div class="w-2 h-2 rounded-full bg-white"></div>
-                        <span class="text-sm font-medium">Offline</span>
-                    </div>
-                </div>
-                
-                <div class="flex items-center space-x-4">
-                    <div class="text-sm text-gray-400">
-                        <span id="experimentCount">0</span> experiments
-                    </div>
-                    <div class="text-sm text-gray-400">
-                        <span id="metricCount">0</span> metrics
-                    </div>
-                    <button id="refreshBtn" class="p-2 rounded-lg glass hover:bg-gray-700 transition">
-                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                    </button>
-                </div>
+<body class="flex flex-col h-screen overflow-hidden text-sm">
+
+    <!-- Global Header -->
+    <header class="h-16 border-b border-slate-800 glass-panel flex items-center justify-between px-6 shrink-0 z-50">
+        <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded bg-gradient-to-br from-cyber-cyan to-blue-600 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.5)]">
+                <i data-lucide="eye" class="text-white w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white leading-tight">LATENT<span class="text-cyber-cyan font-normal">SPY</span></h1>
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Neural Diagnostic Core</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-6">
+            <div class="flex items-center space-x-2">
+                <span class="text-slate-400 font-medium">Target Run:</span>
+                <select id="exp-select" class="bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-cyber-cyan focus:outline-none focus:border-cyber-cyan">
+                    <option value="">Awaiting Telemetry...</option>
+                </select>
+            </div>
+            
+            <div class="flex items-center space-x-2 px-3 py-1 bg-slate-900 rounded-full border border-slate-800">
+                <div id="conn-dot" class="w-2 h-2 rounded-full bg-red-500"></div>
+                <span id="conn-text" class="text-xs font-mono text-slate-300 uppercase">Offline</span>
             </div>
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-6">
-        <!-- Experiment Selector -->
-        <section class="mb-6">
-            <div class="glass rounded-xl p-4">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold flex items-center space-x-2">
-                        <i data-lucide="flask" class="w-5 h-5"></i>
-                        <span>Active Experiment</span>
-                    </h2>
-                    <select id="experimentSelector" class="bg-gray-800 border border-gray-600 rounded-lg px-3 py-1 text-sm">
-                        <option value="">Select Experiment</option>
+    <!-- Navigation Tabs -->
+    <nav class="flex px-6 space-x-1 border-b border-slate-800 bg-slate-950/80 shrink-0">
+        <button data-target="pane-mission" class="nav-tab active px-5 py-3 text-slate-400 hover:text-white transition flex items-center space-x-2 font-medium">
+            <i data-lucide="activity" class="w-4 h-4"></i>
+            <span>Mission Control</span>
+        </button>
+        <button data-target="pane-deep" class="nav-tab px-5 py-3 text-slate-400 hover:text-white transition flex items-center space-x-2 font-medium">
+            <i data-lucide="microscope" class="w-4 h-4"></i>
+            <span>Deep Diagnostics</span>
+        </button>
+        <button data-target="pane-3d" class="nav-tab px-5 py-3 text-slate-400 hover:text-white transition flex items-center space-x-2 font-medium">
+            <i data-lucide="box" class="w-4 h-4"></i>
+            <span>Cluster Space (3D)</span>
+        </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto p-6 space-y-6">
+
+        <!-- ============================================== -->
+        <!-- TIER 1: MISSION CONTROL (The Capstone View)    -->
+        <!-- ============================================== -->
+        <div id="pane-mission" class="space-y-6">
+            
+            <!-- Top Row: Health & Snapshot -->
+            <div class="grid grid-cols-12 gap-6">
+                <!-- Global Health Status -->
+                <div class="col-span-4 glass-panel rounded-xl p-6 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent"></div>
+                    <span class="text-xs font-mono text-slate-400 uppercase tracking-widest mb-4">Integrity Status</span>
+                    
+                    <div id="health-orb" class="w-24 h-24 rounded-full bg-slate-800 mb-4 flex items-center justify-center border-[4px] border-slate-700 transition-all duration-500">
+                        <i id="health-icon" data-lucide="shield-check" class="w-10 h-10 text-slate-500"></i>
+                    </div>
+                    
+                    <h2 id="health-title" class="text-3xl font-bold text-white tracking-tight">UNKNOWN</h2>
+                    <p id="health-sub" class="text-slate-400 text-sm mt-2 text-center">Awaiting geometric evaluation</p>
+                </div>
+
+                <!-- High-Level Tracking Stats -->
+                <div class="col-span-8 grid grid-cols-3 gap-4">
+                    <div class="glass-panel rounded-xl p-5 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400">
+                            <span class="font-medium">Step Counter</span>
+                            <i data-lucide="fast-forward" class="w-4 h-4"></i>
+                        </div>
+                        <div class="text-3xl font-bold font-mono text-white tracking-tight" id="val-step">-</div>
+                    </div>
+                    
+                    <div class="glass-panel rounded-xl p-5 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400">
+                            <span class="font-medium">Validation Loss</span>
+                            <i data-lucide="trending-down" class="w-4 h-4"></i>
+                        </div>
+                        <div class="text-3xl font-bold font-mono text-blue-400 tracking-tight" id="val-loss">-</div>
+                    </div>
+
+                    <div class="glass-panel rounded-xl p-5 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400">
+                            <span class="font-medium" title="Worst layer patchiness recorded">Max Patchiness</span>
+                            <i data-lucide="target" class="w-4 h-4"></i>
+                        </div>
+                        <div class="text-3xl font-bold font-mono tracking-tight" id="val-patch">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Row: The Proof Chart & Pathology Terminal -->
+            <div class="grid grid-cols-12 gap-6 h-[400px]">
+                
+                <!-- The Over/Under Cognitive Proof Chart -->
+                <div class="col-span-8 glass-panel rounded-xl p-5 flex flex-col">
+                    <div class="flex justify-between items-end mb-4 shrink-0">
+                        <div>
+                            <h3 class="text-white font-semibold flex items-center space-x-2">
+                                <i data-lucide="git-merge" class="w-4 h-4 text-cyber-cyan"></i>
+                                <span>Pre-Cognitive Failure Detection</span>
+                            </h3>
+                            <p class="text-xs text-slate-400 mt-1">Cross-referencing Standard Val Loss against Latent Geometry Breakdown</p>
+                        </div>
+                        <div class="flex space-x-4 text-xs font-mono">
+                            <span class="text-blue-400 flex items-center"><span class="w-2 h-2 rounded-full bg-blue-400 mr-2"></span> Val Loss</span>
+                            <span class="text-cyber-pink flex items-center"><span class="w-2 h-2 rounded-full bg-cyber-pink mr-2"></span> Max Patchiness / Norm</span>
+                        </div>
+                    </div>
+                    <!-- ChartJS Container -->
+                    <div class="flex-1 relative w-full h-full">
+                        <canvas id="proofChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Pathology Terminal / Alert Log -->
+                <div class="col-span-4 glass-panel rounded-xl flex flex-col overflow-hidden border border-slate-700/50">
+                    <div class="bg-slate-900 border-b border-slate-800 p-3 flex justify-between items-center shrink-0">
+                        <h3 class="font-mono text-xs text-slate-300 font-semibold tracking-widest flex items-center">
+                            <i data-lucide="terminal" class="w-3 h-3 mr-2"></i>
+                            PATHOLOGY LOG
+                        </h3>
+                        <span id="alert-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-500">0 ALERTS</span>
+                    </div>
+                    <div id="terminal-pane" class="flex-1 p-4 overflow-y-auto terminal-scroll font-mono text-xs space-y-2">
+                        <div class="text-slate-500 italic text-center mt-10">Monitoring latent streams...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- ============================================== -->
+        <!-- TIER 2: DEEP DIAGNOSTICS (The Nerd Setup)      -->
+        <!-- ============================================== -->
+        <div id="pane-deep" class="hidden-pane space-y-6">
+            <div class="flex justify-between items-center bg-slate-900/50 p-4 rounded-lg border border-slate-800">
+                <p class="text-slate-400">Deep examination of individual tensor profiles across the network architecture.</p>
+                <select id="layer-select" class="bg-slate-800 border-slate-700 rounded px-3 py-1 text-sm text-cyber-cyan">
+                    <option>Select specific layer...</option>
+                </select>
+            </div>
+
+            <!-- Heatmap / Metric Grid Matrix -->
+            <div class="glass-panel p-6 rounded-xl">
+                <h3 class="text-white font-semibold mb-2">Network Parameter Matrix</h3>
+                <p class="text-xs text-slate-400 mb-4">X-Axis: Network Depth | Y-Axis: Deep Metrics (Intensity relative to historic bounds)</p>
+                <div class="h-[300px] w-full relative" id="matrixContainer">
+                    <div class="flex flex-col items-center justify-center h-full text-slate-600">
+                        <i data-lucide="grid-3x3" class="w-10 h-10 mb-2"></i>
+                        <span>Awaiting matrix completion</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lower 2 Line Charts for specific layers -->
+            <div class="grid grid-cols-2 gap-6 h-[300px]">
+                <div class="glass-panel p-5 rounded-xl flex flex-col">
+                    <h3 class="text-white font-semibold text-sm mb-2">Activation Magnitudes (Norm/Sparisty)</h3>
+                    <div class="flex-1 relative w-full"><canvas id="normChart"></canvas></div>
+                </div>
+                <div class="glass-panel p-5 rounded-xl flex flex-col">
+                    <h3 class="text-white font-semibold text-sm mb-2">Manifold Geometry (Kurtosis/EEE)</h3>
+                    <div class="flex-1 relative w-full"><canvas id="geomChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================== -->
+        <!-- TIER 2: 3D CLUSTER SPACE (Plotly)             -->
+        <!-- ============================================== -->
+        <div id="pane-3d" class="hidden-pane h-[calc(100vh-140px)]">
+            <div class="glass-panel p-6 rounded-xl h-full flex flex-col">
+                <div class="flex justify-between items-center mb-4 shrink-0">
+                    <div>
+                        <h3 class="text-white font-semibold text-lg">Latent Principal Component Space</h3>
+                        <p class="text-xs text-slate-400 mt-1">Directly tracking $k$-means centroid collapse dynamically. Color = Cluster Assignment.</p>
+                    </div>
+                    <select id="pca-layer-select" class="bg-slate-800 border-slate-700 rounded px-3 py-1 text-sm text-cyber-cyan">
+                        <option>Awaiting 3D Data...</option>
                     </select>
                 </div>
-                <div id="experimentInfo" class="text-sm text-gray-400">
-                    No experiment selected
-                </div>
-            </div>
-        </section>
-
-        <!-- Key Metrics Overview -->
-        <section class="mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                <div class="metric-card glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-sm text-gray-400">Current Loss</span>
-                        <i data-lucide="trending-down" class="w-4 h-4 text-red-400"></i>
-                    </div>
-                    <div class="text-2xl font-bold" id="currentLoss">-</div>
-                    <div class="text-xs text-gray-500 mt-1" id="lossTrend">No data</div>
-                </div>
-                
-                <div class="metric-card glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-sm text-gray-400">Accuracy</span>
-                        <i data-lucide="trending-up" class="w-4 h-4 text-green-400"></i>
-                    </div>
-                    <div class="text-2xl font-bold" id="currentAccuracy">-</div>
-                    <div class="text-xs text-gray-500 mt-1" id="accuracyTrend">No data</div>
-                </div>
-                
-                <div class="metric-card glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-sm text-gray-400">Learning Rate</span>
-                        <i data-lucide="zap" class="w-4 h-4 text-yellow-400"></i>
-                    </div>
-                    <div class="text-2xl font-bold" id="currentLR">-</div>
-                    <div class="text-xs text-gray-500 mt-1" id="lrTrend">No data</div>
-                </div>
-                
-                <div class="metric-card glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-sm text-gray-400">Training Step</span>
-                        <i data-lucide="footprints" class="w-4 h-4 text-blue-400"></i>
-                    </div>
-                    <div class="text-2xl font-bold" id="currentStep">0</div>
-                    <div class="text-xs text-gray-500 mt-1" id="stepProgress">Starting...</div>
-                </div>
-
-                <div class="metric-card glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-sm text-gray-400">Max Layer EEE</span>
-                        <i data-lucide="shield" class="w-4 h-4 text-purple-400"></i>
-                    </div>
-                    <div class="text-2xl font-bold" id="currentHealth">-</div>
-                    <div class="text-xs text-gray-500 mt-1" id="healthStatus">Optimal</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Tabs -->
-        <section class="mb-6">
-            <div class="flex space-x-2 border-b border-gray-700">
-                <button class="tab-btn px-4 py-2 rounded-t-lg tab-active" data-tab="charts">
-                    <i data-lucide="line-chart" class="w-4 h-4 inline mr-2"></i>
-                    Charts
-                </button>
-                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="heatmap">
-                    <i data-lucide="grid" class="w-4 h-4 inline mr-2"></i>
-                    Heatmap
-                </button>
-                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="alerts">
-                    <i data-lucide="alert-triangle" class="w-4 h-4 inline mr-2"></i>
-                    Alerts
-                    <span id="alertCount" class="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">0</span>
-                </button>
-                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="layers">
-                    <i data-lucide="layers" class="w-4 h-4 inline mr-2"></i>
-                    Layers
-                </button>
-                <button class="tab-btn px-4 py-2 rounded-t-lg glass" data-tab="training">
-                    <i data-lucide="database" class="w-4 h-4 inline mr-2"></i>
-                    Training
-                </button>
-            </div>
-        </section>
-
-        <!-- Tab Content -->
-        <section>
-            <!-- Charts Tab -->
-            <div id="charts-tab" class="tab-content">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="trending-down" class="w-5 h-5 text-red-400"></i>
-                            <span>Loss Metrics</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="lossChart"></canvas>
-                        </div>
-                    </div>
-                    
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="target" class="w-5 h-5 text-green-400"></i>
-                            <span>Performance Metrics</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="performanceChart"></canvas>
-                        </div>
-                    </div>
-                    
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="activity" class="w-5 h-5 text-purple-400"></i>
-                            <span>Gradient Statistics</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="gradientChart"></canvas>
-                        </div>
-                    </div>
-                    
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="cpu" class="w-5 h-5 text-blue-400"></i>
-                            <span>Layer Activations</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="activationChart"></canvas>
-                        </div>
+                <div id="plotly-3d-div" class="flex-1 w-full relative min-h-0 bg-slate-900/50 rounded-lg border border-slate-800">
+                    <div class="absolute inset-0 flex flex-col items-center justify-center text-slate-600">
+                        <i data-lucide="axis-3d" class="w-10 h-10 mb-2"></i>
+                        <span>3D Projection Engine Idle</span>
+                        <span class="text-xs mt-1">(Requires 'patchiness' metric collection)</span>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Heatmap Tab -->
-            <div id="heatmap-tab" class="tab-content hidden">
-                <!-- Sub-tabs for heatmap type -->
-                <div class="flex space-x-2 mb-4">
-                    <button id="heatmapBtn3d" class="px-4 py-2 rounded-lg text-sm font-medium tab-active" onclick="dashboard.switchHeatmapMode('3d')">
-                        3D Latent Space
-                    </button>
-                    <button id="heatmapBtnGrid" class="px-4 py-2 rounded-lg glass text-sm font-medium" onclick="dashboard.switchHeatmapMode('grid')">
-                        Layer × Metric Grid
-                    </button>
-                </div>
-
-                <!-- 3D Scatter -->
-                <div id="heatmap-3d" class="glass rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-2 flex-wrap gap-3">
-                        <div>
-                            <h3 class="text-lg font-semibold">Latent Space Projection (PCA → 3D)</h3>
-                            <p class="text-sm text-gray-400 mt-0.5">Each point is an activation vector. Each <strong class="text-white">color = cluster</strong>. Rotate to explore separation.</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <label class="text-xs text-gray-400">Layer:</label>
-                            <select id="projectionLayerSelect" class="bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5 text-sm min-w-[220px]">
-                                <option value="">Waiting for data…</option>
-                            </select>
-                        </div>
-                    </div>
-                    <!-- Stats bar -->
-                    <div id="projectionStats" class="flex space-x-4 text-xs text-gray-500 mb-3 hidden">
-                        <span>Clusters: <strong id="statClusters" class="text-white">0</strong></span>
-                        <span>Points: <strong id="statPoints" class="text-white">0</strong></span>
-                        <span>Step: <strong id="statStep" class="text-white">-</strong></span>
-                    </div>
-                    <div id="heatmapContainer" style="height: 500px;">
-                        <div class="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
-                            <i data-lucide="box" class="w-14 h-14"></i>
-                            <p class="text-base">Waiting for 3D projection data…</p>
-                            <p class="text-xs text-gray-500">Projections are computed when <code>patchiness</code> is in your metric list.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Layer × Metric Grid -->
-                <div id="heatmap-grid" class="glass rounded-xl p-6 hidden">
-                    <h3 class="text-lg font-semibold mb-1">Layer × Metric Heatmap</h3>
-                    <p class="text-sm text-gray-400 mb-4">Each cell shows the latest value for a layer/metric pair. Darker = higher relative value.</p>
-                    <div id="heatmapGridContainer" style="height: 520px;">
-                        <div class="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
-                            <i data-lucide="grid" class="w-14 h-14"></i>
-                            <p class="text-base">Waiting for metric data…</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Alerts Tab -->
-            <div id="alerts-tab" class="tab-content hidden">
-                <div class="glass rounded-xl p-6">
-                    <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <i data-lucide="bell" class="w-5 h-5"></i>
-                        <span>Health Alerts</span>
-                    </h3>
-                    <div id="alertsList" class="space-y-3">
-                        <div class="text-center text-gray-400 py-8">
-                            <i data-lucide="shield-check" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>No alerts - System running normally</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Layers Tab -->
-            <div id="layers-tab" class="tab-content hidden">
-                <div class="glass rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold">Layer Metrics</h3>
-                        <span class="text-xs text-gray-400" id="layersUpdatedAt"></span>
-                    </div>
-                    <div id="layersList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        <div class="text-center text-gray-400 py-8 col-span-3">
-                            <i data-lucide="layers" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>Waiting for layer data…</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Training Tab -->
-            <div id="training-tab" class="tab-content hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="trending-down" class="w-5 h-5 text-red-400"></i>
-                            <span>Training Loss</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="trainingLossChart"></canvas>
-                        </div>
-                    </div>
-                    
-                    <div class="glass rounded-xl p-6">
-                        <h3 class="text-lg font-semibold mb-4 flex items-center space-x-2">
-                            <i data-lucide="zap" class="w-5 h-5 text-yellow-400"></i>
-                            <span>Perplexity</span>
-                        </h3>
-                        <div class="chart-container">
-                            <canvas id="perplexityChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
     </main>
 
+    <!-- UI Logic Script -->
     <script>
-        class LatentSpyDashboard {
+        lucide.createIcons();
+
+        // ChartJS Globals configuration for Dark Theme
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(15, 23, 42, 0.9)';
+        Chart.defaults.plugins.tooltip.titleColor = '#fff';
+        Chart.defaults.plugins.tooltip.borderColor = '#334155';
+        Chart.defaults.plugins.tooltip.borderWidth = 1;
+
+        class MissionControlApp {
             constructor() {
                 this.ws = null;
-                this.experiments = [];
-                this.currentExperimentId = null;
-                this.metrics = {};
-                this.projections = {};
-                this.heatmapMode = '3d';
-                this.alerts = [];
-                this.charts = {};
+                this.currentExpId = null;
+                this.data = { metrics: {}, alerts: [], proj: {} };
+                
+                // Chart instances
+                this.proofChart = null;
+                this.normChart = null;
+                this.geomChart = null;
+                
+                this.layers = new Set();
                 this.reconnectAttempts = 0;
-                this.maxReconnectAttempts = 5;
-                this.updateScheduled = false;
                 
-                this.init();
+                this.initUI();
+                this.fetchExperiments();
+                this.connectWS();
             }
 
-            init() {
-                this.initCharts();
-                this.setupEventListeners();
-                this.connectWebSocket();
-                this.loadExperiments();
-                
-                // Initialize Lucide icons
-                lucide.createIcons();
-            }
-
-            setupEventListeners() {
-                // Tab switching
-                document.querySelectorAll('.tab-btn').forEach(btn => {
+            initUI() {
+                // Tab Logic
+                document.querySelectorAll('.nav-tab').forEach(btn => {
                     btn.addEventListener('click', (e) => {
-                        const tab = e.currentTarget.dataset.tab;
-                        this.switchTab(tab);
+                        document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+                        e.currentTarget.classList.add('active');
+                        
+                        document.querySelectorAll('main > div').forEach(pane => pane.classList.add('hidden-pane'));
+                        document.getElementById(e.currentTarget.dataset.target).classList.remove('hidden-pane');
+
+                        // Resize plotly to fix hidden container bug
+                        if (e.currentTarget.dataset.target === 'pane-3d') {
+                            window.dispatchEvent(new Event('resize'));
+                        }
                     });
                 });
 
-                // Experiment selector
-                document.getElementById('experimentSelector').addEventListener('change', (e) => {
-                    this.selectExperiment(e.target.value);
-                });
-
-                // Refresh button
-                document.getElementById('refreshBtn').addEventListener('click', () => {
-                    this.loadExperiments();
-                    this.rotateRefreshButton();
-                });
-
-                // Layer selector for 3D projection - re-render immediately on change
-                document.getElementById('projectionLayerSelect').addEventListener('change', () => {
-                    // Force re-create the plotly div so it redraws cleanly for the new layer
-                    const container = document.getElementById('heatmapContainer');
-                    const existing = document.getElementById('plotly-3d-div');
-                    if (existing) existing.remove();
-                    this._updateHeatmap3d();
-                });
-            }
-
-            switchTab(tabName) {
-                // Update tab buttons
-                document.querySelectorAll('.tab-btn').forEach(btn => {
-                    if (btn.dataset.tab === tabName) {
-                        btn.className = 'tab-btn px-4 py-2 rounded-t-lg tab-active';
-                    } else {
-                        btn.className = 'tab-btn px-4 py-2 rounded-t-lg glass';
-                    }
-                });
-
-                // Update tab content
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.classList.add('hidden');
-                });
-                document.getElementById(`${tabName}-tab`).classList.remove('hidden');
-                
-                // Reinitialize icons
-                lucide.createIcons();
-            }
-
-            connectWebSocket() {
-                const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-                const host = window.location.host || 'localhost:8000';
-                const wsUrl = `${protocol}${host}/ws`;
-
-                try {
-                    this.ws = new WebSocket(wsUrl);
-
-                    this.ws.onopen = () => {
-                        console.log('WebSocket connected');
-                        this.updateConnectionStatus(true);
-                        this.reconnectAttempts = 0;
-                    };
-
-                    this.ws.onerror = (error) => {
-                        console.error('WebSocket error:', error);
-                        this.updateConnectionStatus(false);
-                    };
-
-                    this.ws.onclose = () => {
-                        console.log('WebSocket closed');
-                        this.updateConnectionStatus(false);
-                        this.attemptReconnect();
-                    };
-
-                    this.ws.onmessage = (event) => {
-                        try {
-                            const message = JSON.parse(event.data);
-                            this.handleMessage(message);
-                        } catch (error) {
-                            console.error('Error parsing message:', error);
-                        }
-                    };
-
-                } catch (error) {
-                    console.error('Failed to connect WebSocket:', error);
-                    this.updateConnectionStatus(false);
-                }
-            }
-
-            attemptReconnect() {
-                if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                    this.reconnectAttempts++;
-                    console.log(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-                    setTimeout(() => {
-                        this.connectWebSocket();
-                    }, 3000 * this.reconnectAttempts);
-                } else {
-                    console.log('Max reconnection attempts reached');
-                }
-            }
-
-            handleMessage(message) {
-                switch (message.type) {
-                    case 'new_experiment':
-                        this.handleNewExperiment(message.data.id);
-                        break;
-                    case 'metric':
-                        // Fallback for individual metrics (backward compatibility)
-                        if (this.currentExperimentId && message.data.experiment_id == this.currentExperimentId) {
-                            this.handleMetric(message.data);
-                            this.scheduleUpdate();
-                        }
-                        break;
-                    case 'metrics_batch':
-                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
-                            this.handleMetricsBatch(message.data);
-                        }
-                        break;
-                    case 'alert':
-                        // Fallback for individual alerts
-                        if (this.currentExperimentId && message.data.experiment_id == this.currentExperimentId) {
-                            this.handleAlert(message.data);
-                            this.scheduleUpdate();
-                        }
-                        break;
-                    case 'alerts_batch':
-                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
-                            this.handleAlertsBatch(message.data);
-                        }
-                        break;
-                    case 'projections_batch':
-                        if (this.currentExperimentId && message.experiment_id == this.currentExperimentId) {
-                            this.handleProjectionsBatch(message.data);
-                        }
-                        break;
-                    case 'experiment_ended':
-                        this.handleExperimentEnded(message.data.id);
-                        break;
-                }
-            }
-
-            handleExperimentEnded(experimentId) {
-                console.log('Experiment ended:', experimentId);
-                if (this.currentExperimentId == experimentId) {
-                    // Clear the current experiment data
-                    this.currentExperimentId = null;
-                    this.metrics = {};
-                    this.alerts = [];
-                    this.updateCharts();
-                    this.updateAlertsList();
-                    this.updateCounts();
-                    this.updateKeyMetricsDisplay();
-                    
-                    // Update UI to show no active experiment
-                    document.getElementById('experimentInfo').innerHTML = 'No active experiment';
-                    document.getElementById('experimentSelector').value = '';
-                }
-            }
-
-            handleNewExperiment(experimentId) {
-                console.log('New experiment:', experimentId);
-                this.loadExperiments();
-                if (!this.currentExperimentId) {
-                    this.selectExperiment(experimentId);
-                }
-            }
-
-            handleProjectionsBatch(projections) {
-                if (!projections || projections.length === 0) return;
-                
-                projections.forEach(p => {
-                    if (!this.projections[p.layer_name]) {
-                        this.projections[p.layer_name] = [];
-                    }
-                    // We only keep the LATEST projection points for each layer
-                    // Since it's a 3D space of the current state
-                    if (this.projections[p.layer_name].length > 0 && this.projections[p.layer_name][0].step < p.step) {
-                         this.projections[p.layer_name] = [];
-                    }
-                    this.projections[p.layer_name].push(p);
-                });
-                
-                this.scheduleUpdate();
-            }
-
-            handleMetricsBatch(metrics) {
-                if (!metrics || metrics.length === 0) return;
-                
-                metrics.forEach(metric => {
-                    this.handleMetric(metric, false);
-                    this.updateKeyMetrics(metric);
-                });
-                
-                this.scheduleUpdate();
-            }
-
-            handleMetric(metric, triggerUpdate = true) {
-                // Store metric data
-                if (!this.metrics[metric.layer_name]) {
-                    this.metrics[metric.layer_name] = {};
-                }
-                if (!this.metrics[metric.layer_name][metric.metric_name]) {
-                    this.metrics[metric.layer_name][metric.metric_name] = [];
-                }
-
-                this.metrics[metric.layer_name][metric.metric_name].push({
-                    step: metric.step,
-                    value: metric.value,
-                    timestamp: metric.timestamp
-                });
-
-                // Limit data points
-                const data = this.metrics[metric.layer_name][metric.metric_name];
-                if (data.length > 200) { // Increased limit slightly for better history
-                    data.splice(0, data.length - 200);
-                }
-
-                if (triggerUpdate) {
-                    this.updateKeyMetrics(metric);
-                    this.scheduleUpdate();
-                }
-            }
-
-            handleAlertsBatch(alerts) {
-                if (!alerts || alerts.length === 0) return;
-                
-                alerts.forEach(alert => {
-                    this.handleAlert(alert, false);
-                });
-                
-                this.scheduleUpdate();
-            }
-
-            handleAlert(alert, triggerUpdate = true) {
-                this.alerts.unshift({
-                    ...alert,
-                    formattedTimestamp: new Date(alert.timestamp).toLocaleString()
-                });
-
-                if (this.alerts.length > 50) {
-                    this.alerts = this.alerts.slice(0, 50);
-                }
-
-                if (triggerUpdate) {
-                    this.scheduleUpdate();
-                }
-            }
-
-            // --- Heatmap mode switcher ---
-            switchHeatmapMode(mode) {
-                this.heatmapMode = mode;
-                const is3d = mode === '3d';
-                document.getElementById('heatmap-3d').classList.toggle('hidden', !is3d);
-                document.getElementById('heatmap-grid').classList.toggle('hidden', is3d);
-                document.getElementById('heatmapBtn3d').className = 'px-4 py-2 rounded-lg text-sm font-medium ' + (is3d ? 'tab-active' : 'glass');
-                document.getElementById('heatmapBtnGrid').className = 'px-4 py-2 rounded-lg text-sm font-medium ' + (!is3d ? 'tab-active' : 'glass');
-                this.updateHeatmap();
-            }
-
-            updateHeatmap() {
-                if (this.heatmapMode === 'grid') {
-                    this._updateHeatmapGrid();
-                } else {
-                    this._updateHeatmap3d();
-                }
-            }
-
-            _updateHeatmap3d() {
-                const container = document.getElementById('heatmapContainer');
-                if (!this.projections || Object.keys(this.projections).length === 0) return;
-
-                // Build sorted layer list and populate dropdown
-                const allLayers = Object.keys(this.projections).sort();
-                const select = document.getElementById('projectionLayerSelect');
-                
-                // Rebuild options if layer list changed
-                const currentOptions = [...select.options].map(o => o.value).filter(v => v);
-                if (JSON.stringify(currentOptions) !== JSON.stringify(allLayers)) {
-                    const currentVal = select.value;
-                    select.innerHTML = allLayers.map(l =>
-                        `<option value="${l}">${l}</option>`
-                    ).join('');
-                    // Prefer previously selected layer, else pick the one with most points
-                    if (currentVal && this.projections[currentVal]) {
-                        select.value = currentVal;
-                    } else {
-                        select.value = allLayers.sort(
-                            (a, b) => this.projections[b].length - this.projections[a].length
-                        )[0];
-                    }
-                }
-
-                const layerName = select.value;
-                const points = this.projections[layerName];
-                if (!points || points.length === 0) return;
-
-                // Group points by cluster_id
-                const clusterMap = {};
-                points.forEach(p => {
-                    const cid = p.cluster_id ?? 0;
-                    if (!clusterMap[cid]) clusterMap[cid] = [];
-                    clusterMap[cid].push(p);
-                });
-
-                const clusterIds = Object.keys(clusterMap).sort((a, b) => +a - +b);
-                
-                // Vivid categorical colors for clusters
-                const CLUSTER_COLORS = [
-                    '#60a5fa', '#f87171', '#34d399', '#fbbf24', '#a78bfa',
-                    '#fb923c', '#38bdf8', '#f472b6', '#4ade80', '#facc15',
-                    '#818cf8', '#e879f9', '#2dd4bf', '#fb7185', '#a3e635'
-                ];
-
-                // One trace per cluster = distinct color per cluster
-                const traces = clusterIds.map((cid, i) => {
-                    const pts = clusterMap[cid];
-                    const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
-                    return {
-                        x: pts.map(p => p.x),
-                        y: pts.map(p => p.y),
-                        z: pts.map(p => p.z),
-                        mode: 'markers',
-                        type: 'scatter3d',
-                        name: `Cluster ${cid}`,
-                        marker: {
-                            size: 3.5,
-                            color: color,
-                            opacity: 0.82,
-                            line: { width: 0.4, color: 'rgba(0,0,0,0.3)' }
-                        },
-                        hovertemplate: `<b>Cluster ${cid}</b><br>PC1: %{x:.2f}<br>PC2: %{y:.2f}<br>PC3: %{z:.2f}<extra></extra>`
-                    };
-                });
-
-                const layout = {
-                    margin: { l: 0, r: 0, b: 0, t: 0 },
-                    paper_bgcolor: 'rgba(0,0,0,0)',
-                    scene: {
-                        bgcolor: 'rgba(15, 23, 42, 0.5)',
-                        xaxis: { title: 'PC1', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false },
-                        yaxis: { title: 'PC2', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false },
-                        zaxis: { title: 'PC3', gridcolor: '#334155', color: '#94a3b8', zerolinecolor: '#475569', showbackground: false }
-                    },
-                    legend: {
-                        font: { color: '#cbd5e1', size: 11 },
-                        bgcolor: 'rgba(15, 23, 42, 0.7)',
-                        bordercolor: '#334155',
-                        borderwidth: 1,
-                        itemsizing: 'constant'
-                    },
-                    showlegend: true
-                };
-
-                // Update stats bar
-                const statsEl = document.getElementById('projectionStats');
-                statsEl.classList.remove('hidden');
-                document.getElementById('statClusters').textContent = clusterIds.length;
-                document.getElementById('statPoints').textContent = points.length;
-                document.getElementById('statStep').textContent = points[0]?.step ?? '-';
-
-                if (!document.getElementById('plotly-3d-div')) {
-                    container.innerHTML = '<div id="plotly-3d-div" style="height:100%;"></div>';
-                }
-                Plotly.react('plotly-3d-div', traces, layout, { responsive: true });
-            }
-
-            _updateHeatmapGrid() {
-                const container = document.getElementById('heatmapGridContainer');
-                if (!this.metrics || Object.keys(this.metrics).length === 0) return;
-
-                // Build layers × metrics matrix
-                const layers = Object.keys(this.metrics);
-                const metricSet = new Set();
-                layers.forEach(l => Object.keys(this.metrics[l]).forEach(m => metricSet.add(m)));
-                const metricNames = [...metricSet];
-
-                if (layers.length === 0 || metricNames.length === 0) return;
-
-                // Get latest value for each cell
-                const zValues = metricNames.map(metric =>
-                    layers.map(layer => {
-                        const pts = this.metrics[layer]?.[metric];
-                        if (!pts || pts.length === 0) return null;
-                        return pts[pts.length - 1].value;
-                    })
-                );
-
-                const trace = {
-                    z: zValues,
-                    x: layers,
-                    y: metricNames,
-                    type: 'heatmap',
-                    colorscale: 'Viridis',
-                    showscale: true,
-                    hoverongaps: false,
-                    colorbar: { tickfont: { color: '#94a3b8' } }
-                };
-
-                const layout = {
-                    margin: { l: 120, r: 20, b: 80, t: 20 },
-                    paper_bgcolor: 'rgba(0,0,0,0)',
-                    plot_bgcolor: 'rgba(15,23,42,0.6)',
-                    xaxis: { tickfont: { color: '#94a3b8' }, tickangle: -35, gridcolor: '#334155' },
-                    yaxis: { tickfont: { color: '#94a3b8' }, gridcolor: '#334155' },
-                    font: { color: '#94a3b8' }
-                };
-
-                if (!document.getElementById('plotly-grid-div')) {
-                    container.innerHTML = '<div id="plotly-grid-div" style="height:100%;"></div>';
-                }
-                Plotly.react('plotly-grid-div', [trace], layout, { responsive: true });
-            }
-
-            scheduleUpdate() {
-                if (this.updateScheduled) return;
-                this.updateScheduled = true;
-                requestAnimationFrame(() => {
-                    this.updateCharts();
-                    this.updateAlertsList();
-                    this.updateHeatmap();
-                    this.updateLayersPanel();
-                    this.updateCounts();
-                    this.updateScheduled = false;
-                });
-            }
-
-            updateLayersPanel() {
-                const container = document.getElementById('layersList');
-                const layers = Object.keys(this.metrics).filter(l => l !== '__scalars__');
-                if (layers.length === 0) return;
-
-                const METRIC_COLORS = {
-                    activation_norm: '#3b82f6',
-                    effective_rank: '#8b5cf6',
-                    patchiness: '#f59e0b',
-                    cosine_similarity: '#10b981',
-                    eigenvalue_early_enrichment: '#a855f7',
-                    sparsity: '#64748b',
-                    kurtosis: '#ec4899',
-                    reconstruction_error: '#f87171',
-                    reconstruction_skew: '#fbbf24'
-                };
-
-                container.innerHTML = layers.map(layer => {
-                    const layerMetrics = this.metrics[layer];
-                    const badges = Object.entries(layerMetrics).map(([metric, pts]) => {
-                        if (pts.length === 0) return '';
-                        const latest = pts[pts.length - 1];
-                        const min = Math.min(...pts.map(p => p.value));
-                        const max = Math.max(...pts.map(p => p.value));
-                        const color = METRIC_COLORS[metric] || '#94a3b8';
-                        const pct = max !== min ? ((latest.value - min) / (max - min)) * 100 : 50;
-                        return `
-                            <div class="mt-3">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-medium" style="color:${color}">${metric}</span>
-                                    <span class="text-xs font-mono text-white">${latest.value.toFixed(4)}</span>
-                                </div>
-                                <div class="w-full bg-gray-700 rounded-full h-1.5">
-                                    <div class="h-1.5 rounded-full" style="width:${pct.toFixed(1)}%;background:${color}"></div>
-                                </div>
-                                <div class="flex justify-between text-xs text-gray-500 mt-0.5">
-                                    <span>${min.toFixed(3)}</span><span>${max.toFixed(3)}</span>
-                                </div>
-                            </div>`;
-                    }).join('');
-
-                    return `
-                        <div class="glass rounded-xl p-4">
-                            <div class="flex items-center space-x-2 mb-1">
-                                <i data-lucide="cpu" class="w-4 h-4 text-blue-400 flex-shrink-0"></i>
-                                <span class="text-sm font-semibold truncate text-white" title="${layer}">${layer}</span>
-                            </div>
-                            <span class="text-xs text-gray-500">${Object.keys(layerMetrics).length} metrics tracked</span>
-                            ${badges}
-                        </div>`;
-                }).join('');
-
-                document.getElementById('layersUpdatedAt').textContent =
-                    'Updated ' + new Date().toLocaleTimeString();
-                lucide.createIcons();
-            }
-
-            updateKeyMetrics(metric) {
-                const metricName = metric.metric_name.toLowerCase();
-                
-                if (metricName.includes('loss')) {
-                    document.getElementById('currentLoss').textContent = metric.value.toFixed(4);
-                    document.getElementById('lossTrend').textContent = `Step ${metric.step}`;
-                }
-                
-                if (metricName.includes('accuracy')) {
-                    document.getElementById('currentAccuracy').textContent = (metric.value * 100).toFixed(1) + '%';
-                    document.getElementById('accuracyTrend').textContent = `Step ${metric.step}`;
-                }
-                
-                if (metricName.includes('learning_rate') || metricName.includes('lr')) {
-                    document.getElementById('currentLR').textContent = metric.value.toExponential(2);
-                    document.getElementById('lrTrend').textContent = `Step ${metric.step}`;
-                }
-                
-                
-                document.getElementById('currentStep').textContent = metric.step;
-                document.getElementById('stepProgress').textContent = `Training step ${metric.step}`;
-
-                if (metricName === 'eigenvalue_early_enrichment') {
-                    // Update overview with the WORST (max) EEE value for the current step
-                    let maxEEE = 0;
-                    const targetStep = metric.step;
-                    
-                    for (const layerMetrics of Object.values(this.metrics)) {
-                        if (layerMetrics.eigenvalue_early_enrichment) {
-                            const latestPoint = layerMetrics.eigenvalue_early_enrichment.find(p => p.step === targetStep);
-                            if (latestPoint && latestPoint.value > maxEEE) {
-                                maxEEE = latestPoint.value;
-                            }
-                        }
-                    }
-
-                    document.getElementById('currentHealth').textContent = maxEEE.toFixed(3);
-                    const status = maxEEE > 0.60 ? 'CRITICAL' : maxEEE > 0.45 ? 'WARNING' : 'Healthy';
-                    const el = document.getElementById('healthStatus');
-                    el.textContent = status;
-                    el.className = `text-xs mt-1 ${status === 'Healthy' ? 'text-green-400' : status === 'WARNING' ? 'text-yellow-400' : 'text-red-400'}`;
-                }
+                // Init Charts
+                this.initCharts();
             }
 
             initCharts() {
-                const chartOptions = {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
-                    scales: {
-                        x: {
-                            type: 'linear',
-                            position: 'bottom',
-                            title: { display: true, text: 'Step', color: '#94a3b8' },
-                            ticks: { color: '#64748b', maxTicksLimit: 8 },
-                            grid: { color: '#334155' }
-                        },
-                        y: {
-                            title: { display: true, text: 'Value', color: '#94a3b8' },
-                            ticks: { color: '#64748b', maxTicksLimit: 6 },
-                            grid: { color: '#334155' }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            labels: { color: '#cbd5e1', usePointStyle: true }
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            titleColor: '#f1f5f9',
-                            bodyColor: '#cbd5e1',
-                            borderColor: '#334155',
-                            borderWidth: 1
+                // Main Proof Chart (Dual axis)
+                const ctxProof = document.getElementById('proofChart').getContext('2d');
+                this.proofChart = new Chart(ctxProof, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: '#1e293b' } },
+                            yLoss: { 
+                                type: 'linear', position: 'left',
+                                title: { display: true, text: 'Val Loss', color: '#60a5fa' },
+                                grid: { color: '#1e293b' } 
+                            },
+                            yGeo: { 
+                                type: 'linear', position: 'right',
+                                title: { display: true, text: 'Geometry Collapse (Patchiness/Norm)', color: '#ec4899' },
+                                grid: { drawOnChartArea: false } 
+                            }
                         }
                     }
+                });
+
+                // Deep Charts
+                const optDeep = {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 10 } } },
+                    scales: { x: { grid: { color: '#1e293b' } }, y: { grid: { color: '#1e293b' } } },
+                    elements: { point: { radius: 1 }, line: { borderWidth: 2 } }
                 };
 
-                // Initialize charts
-                this.charts.loss = new Chart(document.getElementById('lossChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
-
-                this.charts.performance = new Chart(document.getElementById('performanceChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
-
-                this.charts.gradient = new Chart(document.getElementById('gradientChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
-
-                this.charts.activation = new Chart(document.getElementById('activationChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
-
-                this.charts.training_loss = new Chart(document.getElementById('trainingLossChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
-
-                this.charts.perplexity = new Chart(document.getElementById('perplexityChart'), {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: chartOptions
-                });
+                this.normChart = new Chart(document.getElementById('normChart'), { type: 'line', data: { labels:[], datasets:[] }, options: optDeep });
+                this.geomChart = new Chart(document.getElementById('geomChart'), { type: 'line', data: { labels:[], datasets:[] }, options: optDeep });
             }
 
-            updateCharts() {
-                const colors = ['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'];
-                let colorIndex = 0;
-
-                // Organize metrics by chart type and update datasets
-                const chartDatasets = {
-                    loss: [],
-                    performance: [],
-                    gradient: [],
-                    activation: [],
-                    training_loss: [],
-                    perplexity: []
-                };
-
-                for (const [layer, layerMetrics] of Object.entries(this.metrics)) {
-                    for (const [metricName, dataPoints] of Object.entries(layerMetrics)) {
-                        if (dataPoints.length === 0) continue;
-
-                        const color = colors[colorIndex % colors.length];
-                        const isSinglePoint = dataPoints.length === 1;
-                        const isScalar = layer === '__scalars__';
-                        
-                        const dataset = {
-                            label: isScalar ? metricName : `${layer} - ${metricName}`,
-                            data: dataPoints.map(p => ({x: p.step, y: p.value})),
-                            borderColor: color,
-                            backgroundColor: color + '20',
-                            borderWidth: 2,
-                            fill: false,
-                            tension: 0.1,
-                            pointRadius: isSinglePoint ? 4 : 0,
-                            pointHoverRadius: isSinglePoint ? 6 : 3,
-                            showLine: !isSinglePoint
-                        };
-
-                        const lowerName = metricName.toLowerCase();
-                        if (isScalar && lowerName.includes('loss')) {
-                            chartDatasets.training_loss.push(dataset);
-                        } else if (isScalar && lowerName.includes('perplexity')) {
-                            chartDatasets.perplexity.push(dataset);
-                        } else if (lowerName.includes('loss')) {
-                            chartDatasets.loss.push(dataset);
-                        } else if (lowerName.includes('accuracy') || lowerName.includes('precision') || lowerName.includes('recall') || lowerName.includes('f1')) {
-                            chartDatasets.performance.push(dataset);
-                        } else if (lowerName.includes('gradient') || lowerName.includes('norm')) {
-                            chartDatasets.gradient.push(dataset);
-                        } else if (lowerName.includes('enrichment') || lowerName.includes('rank') || lowerName.includes('sparsity') || lowerName.includes('kurtosis') || lowerName.includes('patchiness') || lowerName.includes('reconstruction')) {
-                            chartDatasets.activation.push(dataset);
-                        } else {
-                            chartDatasets.activation.push(dataset);
-                        }
-
-                        colorIndex++;
-                    }
-                }
-
-                // Update all charts efficiently
-                for (const [key, datasets] of Object.entries(chartDatasets)) {
-                    const chart = this.charts[key];
-                    if (chart) {
-                        chart.data.datasets = datasets;
-                        chart.update('none'); // Use 'none' mode for performance
-                    }
+            async fetchExperiments() {
+                try {
+                    const res = await fetch('/api/experiments');
+                    const json = await res.json();
+                    const sel = document.getElementById('exp-select');
+                    sel.innerHTML = json.map(e => `<option value="${e.id}">${e.name} (${new Date(e.created_at).toLocaleDateString()})</option>`).join('');
+                } catch (err) {
+                    console.error("Experiment fetch failed", err);
                 }
             }
 
-            updateAlertsList() {
-                const container = document.getElementById('alertsList');
+            connectWS() {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this.ws = new WebSocket(`${proto}//${location.host}/ws`);
                 
-                if (this.alerts.length === 0) {
-                    container.innerHTML = `
-                        <div class="text-center text-gray-400 py-8">
-                            <i data-lucide="shield-check" class="w-12 h-12 mx-auto mb-2"></i>
-                            <p>No alerts - System running normally</p>
-                        </div>
-                    `;
-                    return;
-                }
+                this.ws.onopen = () => {
+                    document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]';
+                    document.getElementById('conn-text').textContent = 'Live Data';
+                    this.reconnectAttempts = 0;
+                };
 
-                container.innerHTML = this.alerts.map(alert => `
-                    <div class="alert-${alert.level} p-4 rounded-lg">
-                        <div class="flex items-start justify-between">
-                            <div class="flex-1">
-                                <div class="flex items-center space-x-2 mb-2">
-                                    <span class="px-2 py-1 bg-${alert.level === 'critical' ? 'red' : alert.level === 'warning' ? 'yellow' : 'blue'}-500 text-white text-xs rounded">
-                                        ${alert.level.toUpperCase()}
-                                    </span>
-                                    <span class="text-sm text-gray-400">Step ${alert.step}</span>
-                                </div>
-                                <p class="text-white mb-1">${alert.message}</p>
-                                <p class="text-sm text-gray-400">
-                                    ${alert.layer_name} • ${alert.formattedTimestamp}
-                                </p>
-                            </div>
+                this.ws.onclose = () => {
+                    document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+                    document.getElementById('conn-text').textContent = 'Disconnected';
+                    setTimeout(() => this.connectWS(), 2000 * ++this.reconnectAttempts);
+                };
+
+                this.ws.onmessage = (e) => {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'metrics_batch') this.processMetrics(msg.data);
+                    if (msg.type === 'alerts_batch') this.processAlerts(msg.data);
+                    if (msg.type === 'projections_batch') this.processProjections(msg.data);
+                };
+            }
+
+            processMetrics(metrics) {
+                if (!metrics.length) return;
+                
+                // Group by layer -> metric -> points
+                metrics.forEach(m => {
+                    if (!this.data.metrics[m.layer_name]) {
+                        this.data.metrics[m.layer_name] = {};
+                        this.layers.add(m.layer_name);
+                    }
+                    if (!this.data.metrics[m.layer_name][m.metric_name]) {
+                        this.data.metrics[m.layer_name][m.metric_name] = [];
+                    }
+                    this.data.metrics[m.layer_name][m.metric_name].push(m);
+                });
+
+                this.updateMissionControl();
+                this.updateMatrixHeatmap();
+                this.updateDeepCharts(); // based on selected layer
+            }
+
+            processAlerts(alerts) {
+                alerts.forEach(a => this.data.alerts.unshift(a));
+                this.data.alerts = this.data.alerts.slice(0, 100); // keep last 100
+
+                // Update Terminal rendering
+                const term = document.getElementById('terminal-pane');
+                term.innerHTML = this.data.alerts.map(a => `
+                    <div class="px-3 py-2 rounded mb-1 alert-${a.level} animate-fade-in shadow-sm">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold opacity-80">[${a.level}] Step: ${a.step}</span>
+                            <span class="text-[10px] opacity-50">${new Date(a.timestamp).toLocaleTimeString()}</span>
                         </div>
+                        <div class="opacity-90 break-words leading-tight">${a.message}</div>
                     </div>
                 `).join('');
 
+                const badge = document.getElementById('alert-badge');
+                badge.textContent = `${this.data.alerts.length} LOGS`;
+                
+                // Update Health Orb Status based on severe recent logs
+                this.updateHealthOrb();
+            }
+
+            updateHealthOrb() {
+                const recent = this.data.alerts.filter(a => Date.now() - new Date(a.timestamp).getTime() < 60000 * 5); // last 5 min
+                const hasCritical = recent.some(a => a.level === 'CRITICAL');
+                const hasWarning = recent.some(a => a.level === 'WARNING');
+                
+                const orb = document.getElementById('health-orb');
+                const title = document.getElementById('health-title');
+                const sub = document.getElementById('health-sub');
+                const icon = document.getElementById('health-icon');
+
+                if (hasCritical) {
+                    orb.className = 'w-24 h-24 rounded-full bg-red-950 mb-4 flex items-center justify-center border-[4px] border-red-500 pulse-red shadow-[0_0_30px_rgba(239,68,68,0.5)]';
+                    icon.setAttribute('data-lucide', 'alert-triangle');
+                    icon.classList.replace('text-slate-500', 'text-red-500');
+                    title.textContent = 'RAPID COLLAPSE';
+                    title.className = 'text-3xl font-bold text-red-400 tracking-tight';
+                    sub.textContent = 'Severe structural geometry failure detected.';
+                } else if (hasWarning) {
+                    orb.className = 'w-24 h-24 rounded-full bg-yellow-950 mb-4 flex items-center justify-center border-[4px] border-yellow-500 pulse-yellow';
+                    icon.setAttribute('data-lucide', 'alert-circle');
+                    icon.classList.replace('text-slate-500', 'text-yellow-500');
+                    title.textContent = 'DEGRADED';
+                    title.className = 'text-3xl font-bold text-yellow-400 tracking-tight';
+                    sub.textContent = 'Metrics exceeding nominal bounds.';
+                } else if (this.data.metrics['global'] || Object.keys(this.data.metrics).length > 0) {
+                    orb.className = 'w-24 h-24 rounded-full bg-slate-900 mb-4 flex items-center justify-center border-[4px] border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]';
+                    icon.setAttribute('data-lucide', 'shield-check');
+                    icon.className = 'w-10 h-10 text-green-400';
+                    title.textContent = 'OPTIMAL';
+                    title.className = 'text-3xl font-bold text-green-400 tracking-tight';
+                    sub.textContent = 'Latent structure remains stable & healthy.';
+                }
                 lucide.createIcons();
             }
 
-            updateConnectionStatus(connected) {
-                const status = document.getElementById('connectionStatus');
-                if (connected) {
-                    status.className = 'flex items-center space-x-2 px-3 py-1 rounded-full status-online';
-                    status.innerHTML = '<div class="w-2 h-2 rounded-full bg-white pulse"></div><span class="text-sm font-medium">Online</span>';
-                } else {
-                    status.className = 'flex items-center space-x-2 px-3 py-1 rounded-full status-offline';
-                    status.innerHTML = '<div class="w-2 h-2 rounded-full bg-white"></div><span class="text-sm font-medium">Offline</span>';
-                }
-            }
 
-            updateCounts() {
-                const layerCount = Object.keys(this.metrics).filter(l => l !== '__scalars__').length;
-                document.getElementById('experimentCount').textContent = this.experiments.length;
-                document.getElementById('metricCount').textContent = layerCount;
-                document.getElementById('alertCount').textContent = this.alerts.length;
-            }
-
-            async loadExperiments() {
-                try {
-                    const response = await fetch('/api/experiments');
-                    if (response.ok) {
-                        this.experiments = await response.json();
-                        this.updateExperimentSelector();
-                    }
-                } catch (error) {
-                    console.error('Failed to load experiments:', error);
-                }
-            }
-
-            updateExperimentSelector() {
-                const selector = document.getElementById('experimentSelector');
-                selector.innerHTML = '<option value="">Select Experiment</option>';
+            updateMissionControl() {
+                // Compile the Proof Chart: Loss vs Max Patchiness across layers
+                let lossData = [];
+                let patchData = [];
                 
-                this.experiments.forEach(exp => {
-                    const option = document.createElement('option');
-                    option.value = exp.id;
-                    option.textContent = exp.name || `Experiment ${exp.id}`;
-                    selector.appendChild(option);
+                // Get general val_loss if available from training hook
+                if (this.data.metrics['global'] && this.data.metrics['global']['val_loss']) {
+                    lossData = this.data.metrics['global']['val_loss'];
+                } else if (this.data.metrics['global'] && this.data.metrics['global']['loss']) {
+                    lossData = this.data.metrics['global']['loss']; // fallback to train loss
+                }
+
+                // Compute Max Patchiness per step across all layers
+                let patchMap = new Map(); // step -> max_patch
+                for (let layer of this.layers) {
+                    if (this.data.metrics[layer]['patchiness']) {
+                        this.data.metrics[layer]['patchiness'].forEach(pt => {
+                            if (!patchMap.has(pt.step) || pt.value > patchMap.get(pt.step)) {
+                                patchMap.set(pt.step, pt.value);
+                            }
+                        });
+                    }
+                }
+                
+                const sortedSteps = Array.from(patchMap.keys()).sort((a,b)=>a-b);
+                patchData = sortedSteps.map(s => ({step: s, value: patchMap.get(s)}));
+
+                // Update Top Stats
+                if (lossData.length) {
+                    document.getElementById('val-loss').textContent = lossData[lossData.length-1].value.toFixed(4);
+                    document.getElementById('val-step').textContent = lossData[lossData.length-1].step;
+                }
+                if (patchData.length) {
+                    const latest = patchData[patchData.length-1];
+                    document.getElementById('val-patch').textContent = latest.value.toFixed(2);
+                    document.getElementById('val-patch').className = `text-3xl font-bold font-mono tracking-tight ${latest.value > 10 ? 'text-red-400' : 'text-green-400'}`;
+                }
+
+
+                // Update the Proof Chart
+                const allSteps = new Set([...lossData.map(d=>d.step), ...patchData.map(d=>d.step)]);
+                const labels = Array.from(allSteps).sort((a,b)=>a-b);
+
+                // Re-map arrays to match labels length (sparse arrays)
+                const mappedLoss = labels.map(l => { const m = lossData.find(d=>d.step===l); return m ? m.value : null; });
+                const mappedPatch = labels.map(l => { const m = patchData.find(d=>d.step===l); return m ? m.value : null; });
+
+                this.proofChart.data.labels = labels;
+                this.proofChart.data.datasets = [
+                    {
+                        label: 'Standard Loss',
+                        data: mappedLoss,
+                        borderColor: '#60a5fa',
+                        tension: 0.3, spanGaps: true,
+                        yAxisID: 'yLoss',
+                        fill: { target: 'origin', above: 'rgba(96, 165, 250, 0.1)' }
+                    },
+                    {
+                        label: 'Geometry (Patchiness)',
+                        data: mappedPatch,
+                        borderColor: '#ec4899',
+                        borderWidth: 3,
+                        tension: 0.3, spanGaps: true,
+                        yAxisID: 'yGeo'
+                    }
+                ];
+                this.proofChart.update();
+            }
+
+            processProjections(projs) {
+                // We keep the logic for 3D PCA simple. Just store latest points.
+                if(!projs || projs.length===0) return;
+                
+                projs.forEach(p => {
+                    if (!this.data.proj[p.layer_name]) this.data.proj[p.layer_name] = [];
+                    // clear if moving to a new step
+                    if (this.data.proj[p.layer_name].length > 0 && this.data.proj[p.layer_name][0].step < p.step) {
+                        this.data.proj[p.layer_name] = [];
+                    }
+                    this.data.proj[p.layer_name].push(p);
                 });
 
-                if (this.currentExperimentId) {
-                    selector.value = this.currentExperimentId;
-                }
+                this.updatePlotly3D();
             }
 
-            selectExperiment(experimentId) {
-                this.currentExperimentId = experimentId;
-                const experiment = this.experiments.find(exp => exp.id == experimentId);
+            updateMatrixHeatmap() {
+                const container = document.getElementById('matrixContainer');
+                const layers = Array.from(this.layers).filter(l => l !== 'global').sort();
+                if(!layers.length) return;
+
+                const metricSet = new Set();
+                layers.forEach(l => Object.keys(this.data.metrics[l]).forEach(m => metricSet.add(m)));
+                const metrics = Array.from(metricSet).filter(m => m !== 'learning_rate' && m !== 'loss');
+
+                const zValues = metrics.map(m => layers.map(l => {
+                    const arr = this.data.metrics[l][m];
+                    return arr && arr.length ? arr[arr.length-1].value : null;
+                }));
+
+                const trace = {
+                    z: zValues, x: layers, y: metrics, type: 'heatmap', colorscale: 'Plasma',
+                    hoverongaps: false, colorbar: { tickcolor: '#fff', tickfont: {color: '#94a3b8'} }
+                };
                 
-                if (experiment) {
-                    document.getElementById('experimentInfo').innerHTML = `
-                        <div class="flex items-center space-x-4">
-                            <span><strong>${experiment.name || 'Unnamed'}</strong></span>
-                            <span class="text-gray-500">ID: ${experiment.id}</span>
-                            <span class="text-gray-500">Created: ${new Date(experiment.created_at).toLocaleString()}</span>
-                        </div>
-                    `;
-                }
-
-                // Reset data for new experiment
-                this.metrics = {};
-                this.alerts = [];
-                this.updateCharts();
-                this.updateAlertsList();
-                this.updateCounts();
+                const layout = {
+                    margin: { l: 150, r: 0, b: 50, t: 10 },
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    xaxis: { tickfont: {color: '#94a3b8', size:10}, tickangle: 45 },
+                    yaxis: { tickfont: {color: '#94a3b8', size:11} }
+                };
+                Plotly.react(container, [trace], layout, {responsive:true});
             }
 
-            rotateRefreshButton() {
-                const btn = document.getElementById('refreshBtn');
-                const icon = btn.querySelector('i');
-                icon.style.transform = 'rotate(360deg)';
-                icon.style.transition = 'transform 0.5s';
-                setTimeout(() => {
-                    icon.style.transform = 'rotate(0deg)';
-                }, 500);
+            updateDeepCharts() {
+                // Placeholder - dynamic charting based on layer select
+            }
+
+            updatePlotly3D() {
+                const layerSel = document.getElementById('pca-layer-select');
+                const availableLayers = Object.keys(this.data.proj);
+                if (!availableLayers.length) return;
+
+                // Sync dropdown
+                if (layerSel.options.length <= 1) {
+                    layerSel.innerHTML = availableLayers.map(l => `<option value="${l}">${l}</option>`).join('');
+                }
+
+                const targetLayer = layerSel.value || availableLayers[0];
+                const points = this.data.proj[targetLayer] || [];
+
+                if(!points.length) return;
+
+                // Group by cluster
+                const clusters = {};
+                points.forEach(p => {
+                    if(!clusters[p.cluster_id]) clusters[p.cluster_id] = {x:[], y:[], z:[]};
+                    clusters[p.cluster_id].x.push(p.x);
+                    clusters[p.cluster_id].y.push(p.y);
+                    clusters[p.cluster_id].z.push(p.z);
+                });
+
+                const traces = Object.keys(clusters).map((cid, i) => {
+                    const colors = ['#06b6d4','#ec4899','#facc15','#a855f7','#22c55e','#f97316'];
+                    return {
+                        x: clusters[cid].x, y: clusters[cid].y, z: clusters[cid].z,
+                        mode: 'markers', type: 'scatter3d', name: `Cluster ${cid}`,
+                        marker: { size: 3, color: colors[i % colors.length], opacity: 0.9, line: {width: 0.5, color: '#000'} }
+                    };
+                });
+
+                const layout = {
+                    margin: { l:0,r:0,t:0,b:0 },
+                    paper_bgcolor: 'transparent',
+                    scene: {
+                        bgcolor: 'transparent',
+                        xaxis: {showbackground: false, color: '#475569'},
+                        yaxis: {showbackground: false, color: '#475569'},
+                        zaxis: {showbackground: false, color: '#475569'}
+                    },
+                    legend: { font: {color: '#cbd5e1'} },
+                    showlegend: true
+                };
+
+                Plotly.react('plotly-3d-div', traces, layout, {responsive:true});
             }
         }
 
-        // Initialize dashboard
-        const dashboard = new LatentSpyDashboard();
+        // Boot
+        window.addEventListener('DOMContentLoaded', () => {
+            window.missionControl = new MissionControlApp();
+        });
     </script>
 </body>
 </html>
