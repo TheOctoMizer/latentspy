@@ -73,6 +73,19 @@ def run_experiment():
         train_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
         val_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
+        # Native Dataloaders
+        num_workers = 2 if DEVICE.type == "cuda" else 0
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
+        
+        def get_val_batch(loader):
+            iterator = iter(loader)
+            while True:
+                try:
+                    yield next(iterator)
+                except StopIteration:
+                    iterator = iter(loader)
+                    yield next(iterator)
+        
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
         val_iterator = get_val_batch(val_loader)
 
