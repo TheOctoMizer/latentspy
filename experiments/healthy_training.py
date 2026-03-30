@@ -2,12 +2,14 @@ import os
 import sys
 import gc
 
-# Set the environment before any other imports to prevent FAISS MacOS crashes
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+# Environment configuration for stability on macOS
+os.environ.update({
+    "KMP_DUPLICATE_LIB_OK": "True",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+})
 
 import torch
 from torch.utils.data import DataLoader
@@ -29,11 +31,10 @@ def run_experiment():
     WARMUP_STEPS = 500
     MAX_GRAD_NORM = 1.0
 
-    print(f"=== {EXPERIMENT_NAME} ===")
-    print(f"Learning Rate: {LEARNING_RATE}")
-    print(f"Batch Size: {BATCH_SIZE}")
-    print(f"Number of Epochs: {NUM_EPOCHS}")
-    print(f"Validation Interval: {VAL_INTERVAL}")
+    # Config summary
+    print(f"\n[Run Config] {EXPERIMENT_NAME}")
+    print(f"  Params: LR={LEARNING_RATE}, BS={BATCH_SIZE}, Epochs={NUM_EPOCHS}")
+    print(f"  Monitoring: Val_Int={VAL_INTERVAL}, Sample_Int={SAMPLE_INTERVAL}")
 
     # 1. Model & Tokenizer
     print("\nInitializing model...")
@@ -62,27 +63,14 @@ def run_experiment():
         def tokenize_function(examples):
             return tokenizer(examples['text'], truncation=True, padding="max_length", max_length=128)
         
-        print("Tokenizing datasets... (this makes training much faster)")
-        train_dataset = train_dataset.map(tokenize_function, batched=True, remove_columns=["text"], desc="Tokenizing Train")
-        val_dataset = val_dataset.map(tokenize_function, batched=True, remove_columns=["text"], desc="Tokenizing Val")
+        print("Tokenizing datasets...")
+        train_dataset = train_dataset.map(tokenize_function, batched=True, remove_columns=["text"], desc="Train")
+        val_dataset = val_dataset.map(tokenize_function, batched=True, remove_columns=["text"], desc="Val")
         
         # Set to PyTorch format so DataLoader returns raw tensors immediately
         train_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
         val_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
-        # Native Dataloaders for maximal acceleration
-        num_workers = 2 if DEVICE.type == "cuda" else 0
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
-        # Validation loader is an iterator we can loop repeatedly from
-        def get_val_batch(loader):
-            iterator = iter(loader)
-            while True:
-                try:
-                    yield next(iterator)
-                except StopIteration:
-                    iterator = iter(loader)
-                    yield next(iterator)
-        
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
         val_iterator = get_val_batch(val_loader)
 
@@ -131,7 +119,8 @@ def run_experiment():
     loss_history = []
     global_step = 0
 
-    print("\n--- Starting Training ---")
+    print(f"\n--- MISSION START: {EXPERIMENT_NAME} ---")
+    print(f"Dashboard active at: http://localhost:8000")
     try:
         model.train()
         for epoch in range(1, NUM_EPOCHS + 1):
@@ -176,7 +165,7 @@ def run_experiment():
                     
                     avg_val_loss = total_val_loss / len(val_batches)
                     monitor.log_scalar("val_loss", avg_val_loss)
-                    print(f"   ► [Val Step {global_step}] Standard Val Loss: {avg_val_loss:.4f}")
+                    print(f"   [Val] Step: {global_step:5d} | Val Loss: {avg_val_loss:.4f}")
                     model.train()
 
                 monitor.log()
@@ -186,7 +175,7 @@ def run_experiment():
                 loss_history.append(loss.item())
                 
                 if global_step % 100 == 0 or global_step == 1:
-                    print(f"Step {global_step:4d} | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e}")
+                    print(f"      Step: {global_step:5d} | Train Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e}")
 
     except KeyboardInterrupt:
         print("\n\n[!] Training interupted by user (Ctrl+C). Initiating graceful shutdown...")
@@ -201,16 +190,13 @@ def run_experiment():
             del train_loader
         gc.collect()
 
-        print(f"\n--- Storage Analysis ---")
-        print(f"Experiment data stored in: {monitor.storage.run_database}")
-        
+        # Export and Save
         export_path = monitor.storage.export_experiment_data(EXPERIMENT_NAME)
-        print(f"Full export path: {export_path}")
+        print(f"Export: {export_path}")
 
-        print(f"\nSaving model to models/healthy_baseline...")
         os.makedirs("models", exist_ok=True)
-        model.save_pretrained("models/healthy_baseline")
-        print("Model saved successfully.")
+        model.save_pretrained(f"models/{EXPERIMENT_NAME.replace('_training_', '_')}")
+        print("Model state saved.")
 
         monitor.remove()
         del model, optimizer, monitor
