@@ -293,11 +293,8 @@
 
     </main>
 
-    <!-- UI Logic Script -->
     <script>
         lucide.createIcons();
-
-        // ChartJS Globals configuration for Dark Theme
         Chart.defaults.color = '#94a3b8';
         Chart.defaults.font.family = "'Inter', sans-serif";
         Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(15, 23, 42, 0.9)';
@@ -308,78 +305,52 @@
         class MissionControlApp {
             constructor() {
                 this.ws = null;
-                this.currentExpId = null;
                 this.data = { metrics: {}, alerts: [], proj: {} };
-                
-                // Chart instances
                 this.proofChart = null;
                 this.normChart = null;
                 this.geomChart = null;
-                
                 this.layers = new Set();
                 this.reconnectAttempts = 0;
-                
                 this.initUI();
                 this.fetchExperiments();
                 this.connectWS();
             }
 
             initUI() {
-                // Tab Logic
                 document.querySelectorAll('.nav-tab').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
                         e.currentTarget.classList.add('active');
-                        
                         document.querySelectorAll('main > div').forEach(pane => pane.classList.add('hidden-pane'));
                         document.getElementById(e.currentTarget.dataset.target).classList.remove('hidden-pane');
-
-                        // Resize plotly to fix hidden container bug
-                        if (e.currentTarget.dataset.target === 'pane-3d') {
-                            window.dispatchEvent(new Event('resize'));
-                        }
+                        if (e.currentTarget.dataset.target === 'pane-3d') window.dispatchEvent(new Event('resize'));
                     });
                 });
-
-                // Init Charts
+                document.getElementById('layer-select').addEventListener('change', () => this.updateDeepCharts());
                 this.initCharts();
             }
 
             initCharts() {
-                // Main Proof Chart (Dual axis)
                 const ctxProof = document.getElementById('proofChart').getContext('2d');
                 this.proofChart = new Chart(ctxProof, {
                     type: 'line',
                     data: { labels: [], datasets: [] },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
+                        responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
                         plugins: { legend: { display: false } },
                         scales: {
                             x: { grid: { color: '#1e293b' } },
-                            yLoss: { 
-                                type: 'linear', position: 'left',
-                                title: { display: true, text: 'Val Loss', color: '#60a5fa' },
-                                grid: { color: '#1e293b' } 
-                            },
-                            yGeo: { 
-                                type: 'linear', position: 'right',
-                                title: { display: true, text: 'Geometry Collapse (Patchiness/Norm)', color: '#ec4899' },
-                                grid: { drawOnChartArea: false } 
-                            }
+                            yLoss: { type: 'linear', position: 'left', title: { display: true, text: 'Val Loss', color: '#60a5fa' }, grid: { color: '#1e293b' } },
+                            yGeo: { type: 'linear', position: 'right', title: { display: true, text: 'Geometry Collapse', color: '#ec4899' }, grid: { drawOnChartArea: false } }
                         }
                     }
                 });
-
-                // Deep Charts
                 const optDeep = {
                     responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 10 } } },
-                    scales: { x: { grid: { color: '#1e293b' } }, y: { grid: { color: '#1e293b' } } },
-                    elements: { point: { radius: 1 }, line: { borderWidth: 2 } }
+                    scales: { x: { grid: { color: '#1e293b' } }, y: { grid: { color: '#1e293b' } } }
                 };
-
                 this.normChart = new Chart(document.getElementById('normChart'), { type: 'line', data: { labels:[], datasets:[] }, options: optDeep });
                 this.geomChart = new Chart(document.getElementById('geomChart'), { type: 'line', data: { labels:[], datasets:[] }, options: optDeep });
             }
@@ -389,28 +360,22 @@
                     const res = await fetch('/api/experiments');
                     const json = await res.json();
                     const sel = document.getElementById('exp-select');
-                    sel.innerHTML = json.map(e => `<option value="${e.id}">${e.name} (${new Date(e.created_at).toLocaleDateString()})</option>`).join('');
-                } catch (err) {
-                    console.error("Experiment fetch failed", err);
-                }
+                    sel.innerHTML = json.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+                } catch (err) { console.error(err); }
             }
 
             connectWS() {
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 this.ws = new WebSocket(`${proto}//${location.host}/ws`);
-                
                 this.ws.onopen = () => {
                     document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]';
                     document.getElementById('conn-text').textContent = 'Live Data';
-                    this.reconnectAttempts = 0;
                 };
-
                 this.ws.onclose = () => {
                     document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-red-500';
                     document.getElementById('conn-text').textContent = 'Disconnected';
-                    setTimeout(() => this.connectWS(), 2000 * ++this.reconnectAttempts);
+                    setTimeout(() => this.connectWS(), 2000);
                 };
-
                 this.ws.onmessage = (e) => {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'metrics_batch') this.processMetrics(msg.data);
@@ -420,256 +385,158 @@
             }
 
             processMetrics(metrics) {
-                if (!metrics.length) return;
-                
-                // Group by layer -> metric -> points
                 metrics.forEach(m => {
                     if (!this.data.metrics[m.layer_name]) {
                         this.data.metrics[m.layer_name] = {};
                         this.layers.add(m.layer_name);
+                        if (m.layer_name !== '__scalars__') {
+                            const sel = document.getElementById('layer-select');
+                            if (![...sel.options].find(o => o.value === m.layer_name)) {
+                                sel.add(new Option(m.layer_name, m.layer_name));
+                            }
+                        }
                     }
-                    if (!this.data.metrics[m.layer_name][m.metric_name]) {
-                        this.data.metrics[m.layer_name][m.metric_name] = [];
-                    }
+                    if (!this.data.metrics[m.layer_name][m.metric_name]) this.data.metrics[m.layer_name][m.metric_name] = [];
                     this.data.metrics[m.layer_name][m.metric_name].push(m);
                 });
-
                 this.updateMissionControl();
                 this.updateMatrixHeatmap();
-                this.updateDeepCharts(); // based on selected layer
+                this.updateDeepCharts();
             }
 
             processAlerts(alerts) {
-                alerts.forEach(a => this.data.alerts.unshift(a));
-                this.data.alerts = this.data.alerts.slice(0, 100); // keep last 100
-
-                // Update Terminal rendering
+                this.data.alerts = [...alerts, ...this.data.alerts].slice(0, 100);
                 const term = document.getElementById('terminal-pane');
-                term.innerHTML = this.data.alerts.map(a => `
-                    <div class="px-3 py-2 rounded mb-1 alert-${a.level} animate-fade-in shadow-sm">
-                        <div class="flex justify-between items-center mb-1">
-                            <span class="font-bold opacity-80">[${a.level}] Step: ${a.step}</span>
-                            <span class="text-[10px] opacity-50">${new Date(a.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        <div class="opacity-90 break-words leading-tight">${a.message}</div>
-                    </div>
-                `).join('');
-
-                const badge = document.getElementById('alert-badge');
-                badge.textContent = `${this.data.alerts.length} LOGS`;
-                
-                // Update Health Orb Status based on severe recent logs
+                term.innerHTML = this.data.alerts.map(a => `<div class="px-3 py-2 rounded mb-1 alert-${a.level} font-mono text-xs"><b>[${a.level}]</b> ${a.message}</div>`).join('');
+                document.getElementById('alert-badge').textContent = `${this.data.alerts.length} LOGS`;
                 this.updateHealthOrb();
             }
 
             updateHealthOrb() {
-                const recent = this.data.alerts.filter(a => Date.now() - new Date(a.timestamp).getTime() < 60000 * 5); // last 5 min
+                const now = Date.now();
+                const recent = this.data.alerts.filter(a => now - new Date(a.timestamp).getTime() < 300000);
                 const hasCritical = recent.some(a => a.level === 'CRITICAL');
                 const hasWarning = recent.some(a => a.level === 'WARNING');
-                
                 const orb = document.getElementById('health-orb');
+                const icon = document.getElementById('health-icon');
                 const title = document.getElementById('health-title');
                 const sub = document.getElementById('health-sub');
-                const icon = document.getElementById('health-icon');
 
                 if (hasCritical) {
-                    orb.className = 'w-24 h-24 rounded-full bg-red-950 mb-4 flex items-center justify-center border-[4px] border-red-500 pulse-red shadow-[0_0_30px_rgba(239,68,68,0.5)]';
+                    orb.className = 'w-24 h-24 rounded-full bg-red-950 mb-4 flex items-center justify-center border-[4px] border-red-500';
                     icon.setAttribute('data-lucide', 'alert-triangle');
-                    icon.classList.replace('text-slate-500', 'text-red-500');
-                    title.textContent = 'RAPID COLLAPSE';
-                    title.className = 'text-3xl font-bold text-red-400 tracking-tight';
-                    sub.textContent = 'Severe structural geometry failure detected.';
+                    icon.className = 'w-10 h-10 text-red-500';
+                    title.textContent = 'CRITICAL';
+                    sub.textContent = 'Structural failure detected';
                 } else if (hasWarning) {
-                    orb.className = 'w-24 h-24 rounded-full bg-yellow-950 mb-4 flex items-center justify-center border-[4px] border-yellow-500 pulse-yellow';
+                    orb.className = 'w-24 h-24 rounded-full bg-yellow-950 mb-4 flex items-center justify-center border-[4px] border-yellow-500';
                     icon.setAttribute('data-lucide', 'alert-circle');
-                    icon.classList.replace('text-slate-500', 'text-yellow-500');
+                    icon.className = 'w-10 h-10 text-yellow-500';
                     title.textContent = 'DEGRADED';
-                    title.className = 'text-3xl font-bold text-yellow-400 tracking-tight';
-                    sub.textContent = 'Metrics exceeding nominal bounds.';
-                } else if (this.data.metrics['global'] || Object.keys(this.data.metrics).length > 0) {
-                    orb.className = 'w-24 h-24 rounded-full bg-slate-900 mb-4 flex items-center justify-center border-[4px] border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]';
+                    sub.textContent = 'Metrics exceeding bounds';
+                } else if (Object.keys(this.data.metrics).length > 0) {
+                    orb.className = 'w-24 h-24 rounded-full bg-slate-900 mb-4 flex items-center justify-center border-[4px] border-green-500';
                     icon.setAttribute('data-lucide', 'shield-check');
                     icon.className = 'w-10 h-10 text-green-400';
                     title.textContent = 'OPTIMAL';
-                    title.className = 'text-3xl font-bold text-green-400 tracking-tight';
-                    sub.textContent = 'Latent structure remains stable & healthy.';
+                    sub.textContent = 'System stable';
                 }
                 lucide.createIcons();
             }
 
-
             updateMissionControl() {
-                // Compile the Proof Chart: Loss vs Max Patchiness across layers
-                let lossData = [];
-                let patchData = [];
-                
-                // Get general val_loss if available from training hook
-                if (this.data.metrics['global'] && this.data.metrics['global']['val_loss']) {
-                    lossData = this.data.metrics['global']['val_loss'];
-                } else if (this.data.metrics['global'] && this.data.metrics['global']['loss']) {
-                    lossData = this.data.metrics['global']['loss']; // fallback to train loss
+                const scalars = this.data.metrics['__scalars__'] || {};
+                const loss = scalars['val_loss'] || scalars['loss'] || [];
+                if (loss.length) {
+                    document.getElementById('val-loss').textContent = loss[loss.length-1].value.toFixed(4);
+                    document.getElementById('val-step').textContent = loss[loss.length-1].step;
                 }
-
-                // Compute Max Patchiness per step across all layers
-                let patchMap = new Map(); // step -> max_patch
-                for (let layer of this.layers) {
-                    if (this.data.metrics[layer]['patchiness']) {
-                        this.data.metrics[layer]['patchiness'].forEach(pt => {
-                            if (!patchMap.has(pt.step) || pt.value > patchMap.get(pt.step)) {
-                                patchMap.set(pt.step, pt.value);
-                            }
+                let patchMap = new Map();
+                this.layers.forEach(l => {
+                    if (this.data.metrics[l]['patchiness']) {
+                        this.data.metrics[l]['patchiness'].forEach(p => {
+                            if (!patchMap.has(p.step) || p.value > patchMap.get(p.step)) patchMap.set(p.step, p.value);
                         });
                     }
-                }
-                
+                });
                 const sortedSteps = Array.from(patchMap.keys()).sort((a,b)=>a-b);
-                patchData = sortedSteps.map(s => ({step: s, value: patchMap.get(s)}));
-
-                // Update Top Stats
-                if (lossData.length) {
-                    document.getElementById('val-loss').textContent = lossData[lossData.length-1].value.toFixed(4);
-                    document.getElementById('val-step').textContent = lossData[lossData.length-1].step;
+                if (sortedSteps.length) {
+                    const latest = patchMap.get(sortedSteps[sortedSteps.length-1]);
+                    document.getElementById('val-patch').textContent = latest.toFixed(2);
                 }
-                if (patchData.length) {
-                    const latest = patchData[patchData.length-1];
-                    document.getElementById('val-patch').textContent = latest.value.toFixed(2);
-                    document.getElementById('val-patch').className = `text-3xl font-bold font-mono tracking-tight ${latest.value > 10 ? 'text-red-400' : 'text-green-400'}`;
-                }
-
-
-                // Update the Proof Chart
-                const allSteps = new Set([...lossData.map(d=>d.step), ...patchData.map(d=>d.step)]);
-                const labels = Array.from(allSteps).sort((a,b)=>a-b);
-
-                // Re-map arrays to match labels length (sparse arrays)
-                const mappedLoss = labels.map(l => { const m = lossData.find(d=>d.step===l); return m ? m.value : null; });
-                const mappedPatch = labels.map(l => { const m = patchData.find(d=>d.step===l); return m ? m.value : null; });
-
-                this.proofChart.data.labels = labels;
+                this.proofChart.data.labels = sortedSteps;
                 this.proofChart.data.datasets = [
-                    {
-                        label: 'Standard Loss',
-                        data: mappedLoss,
-                        borderColor: '#60a5fa',
-                        tension: 0.3, spanGaps: true,
-                        yAxisID: 'yLoss',
-                        fill: { target: 'origin', above: 'rgba(96, 165, 250, 0.1)' }
-                    },
-                    {
-                        label: 'Geometry (Patchiness)',
-                        data: mappedPatch,
-                        borderColor: '#ec4899',
-                        borderWidth: 3,
-                        tension: 0.3, spanGaps: true,
-                        yAxisID: 'yGeo'
-                    }
+                    { label: 'Loss', data: sortedSteps.map(s => loss.find(d=>d.step===s)?.value), yAxisID: 'yLoss', borderColor: '#60a5fa' },
+                    { label: 'Patchiness', data: sortedSteps.map(s => patchMap.get(s)), yAxisID: 'yGeo', borderColor: '#ec4899' }
                 ];
                 this.proofChart.update();
             }
 
-            processProjections(projs) {
-                // We keep the logic for 3D PCA simple. Just store latest points.
-                if(!projs || projs.length===0) return;
-                
-                projs.forEach(p => {
-                    if (!this.data.proj[p.layer_name]) this.data.proj[p.layer_name] = [];
-                    // clear if moving to a new step
-                    if (this.data.proj[p.layer_name].length > 0 && this.data.proj[p.layer_name][0].step < p.step) {
-                        this.data.proj[p.layer_name] = [];
-                    }
-                    this.data.proj[p.layer_name].push(p);
-                });
+            updateDeepCharts() {
+                const layer = document.getElementById('layer-select').value;
+                if (!layer || layer.startsWith('—')) return;
+                const metrics = this.data.metrics[layer] || {};
 
-                this.updatePlotly3D();
+                // Activation Norm + Sparsity
+                const norm     = metrics['activation_norm'] || [];
+                const sparsity = metrics['sparsity'] || [];
+                this.normChart.data.labels = norm.map(d => d.step);
+                this.normChart.data.datasets = [
+                    { label: 'Activation Norm', data: norm.map(d => d.value), borderColor: '#60a5fa', tension: 0.3, pointRadius: 0 },
+                    { label: 'Sparsity',         data: sparsity.map(d => d.value), borderColor: '#34d399', tension: 0.3, pointRadius: 0 }
+                ];
+                this.normChart.update('none');
+
+                // Kurtosis + EEE
+                const kurtosis = metrics['kurtosis'] || [];
+                const eee      = metrics['eigenvalue_early_enrichment'] || [];
+                const cosine   = metrics['cosine_similarity'] || [];
+                this.geomChart.data.labels = kurtosis.map(d => d.step);
+                this.geomChart.data.datasets = [
+                    { label: 'Kurtosis', data: kurtosis.map(d => d.value), borderColor: '#a78bfa', tension: 0.3, pointRadius: 0 },
+                    { label: 'EEE',      data: eee.map(d => d.value),      borderColor: '#f97316', tension: 0.3, pointRadius: 0 },
+                    { label: 'Cos Sim',  data: cosine.map(d => d.value),   borderColor: '#f472b6', tension: 0.3, pointRadius: 0 }
+                ];
+                this.geomChart.update('none');
             }
 
             updateMatrixHeatmap() {
                 const container = document.getElementById('matrixContainer');
-                const layers = Array.from(this.layers).filter(l => l !== 'global').sort();
-                if(!layers.length) return;
-
+                const layers = Array.from(this.layers).filter(l => l !== '__scalars__').sort();
+                if (!layers.length) return;
+                const wantedMetrics = ['activation_norm', 'sparsity', 'kurtosis', 'cosine_similarity', 'patchiness', 'reconstruction_error', 'eigenvalue_early_enrichment'];
                 const metricSet = new Set();
-                layers.forEach(l => Object.keys(this.data.metrics[l]).forEach(m => metricSet.add(m)));
-                const metrics = Array.from(metricSet).filter(m => m !== 'learning_rate' && m !== 'loss');
-
-                const zValues = metrics.map(m => layers.map(l => {
-                    const arr = this.data.metrics[l][m];
-                    return arr && arr.length ? arr[arr.length-1].value : null;
+                layers.forEach(l => Object.keys(this.data.metrics[l] || {}).forEach(m => metricSet.add(m)));
+                const metrics = [...metricSet].filter(m => wantedMetrics.includes(m));
+                if (!metrics.length) return;
+                const z = metrics.map(m => layers.map(l => {
+                    const arr = (this.data.metrics[l] || {})[m];
+                    return arr && arr.length ? arr[arr.length - 1].value : null;
                 }));
-
-                const trace = {
-                    z: zValues, x: layers, y: metrics, type: 'heatmap', colorscale: 'Plasma',
-                    hoverongaps: false, colorbar: { tickcolor: '#fff', tickfont: {color: '#94a3b8'} }
-                };
-                
                 const layout = {
-                    margin: { l: 150, r: 0, b: 50, t: 10 },
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                    xaxis: { tickfont: {color: '#94a3b8', size:10}, tickangle: 45 },
-                    yaxis: { tickfont: {color: '#94a3b8', size:11} }
+                    margin: { l: 180, r: 10, b: 80, t: 10 },
+                    paper_bgcolor: 'transparent', plot_bgcolor: 'rgba(15,23,42,0.3)',
+                    xaxis: { tickfont: { color: '#94a3b8', size: 9 }, tickangle: 45 },
+                    yaxis: { tickfont: { color: '#94a3b8', size: 11 } }
                 };
-                Plotly.react(container, [trace], layout, {responsive:true});
+                Plotly.react(container, [{ z, x: layers, y: metrics, type: 'heatmap', colorscale: 'Plasma',
+                    hoverongaps: false, colorbar: { tickfont: { color: '#94a3b8' } } }], layout, { responsive: true, displayModeBar: false });
             }
 
-            updateDeepCharts() {
-                // Placeholder - dynamic charting based on layer select
+            processProjections(projs) {
+                this.data.proj = projs;
+                this.updatePlotly3D();
             }
 
             updatePlotly3D() {
-                const layerSel = document.getElementById('pca-layer-select');
-                const availableLayers = Object.keys(this.data.proj);
-                if (!availableLayers.length) return;
-
-                // Sync dropdown
-                if (layerSel.options.length <= 1) {
-                    layerSel.innerHTML = availableLayers.map(l => `<option value="${l}">${l}</option>`).join('');
-                }
-
-                const targetLayer = layerSel.value || availableLayers[0];
-                const points = this.data.proj[targetLayer] || [];
-
-                if(!points.length) return;
-
-                // Group by cluster
-                const clusters = {};
-                points.forEach(p => {
-                    if(!clusters[p.cluster_id]) clusters[p.cluster_id] = {x:[], y:[], z:[]};
-                    clusters[p.cluster_id].x.push(p.x);
-                    clusters[p.cluster_id].y.push(p.y);
-                    clusters[p.cluster_id].z.push(p.z);
-                });
-
-                const traces = Object.keys(clusters).map((cid, i) => {
-                    const colors = ['#06b6d4','#ec4899','#facc15','#a855f7','#22c55e','#f97316'];
-                    return {
-                        x: clusters[cid].x, y: clusters[cid].y, z: clusters[cid].z,
-                        mode: 'markers', type: 'scatter3d', name: `Cluster ${cid}`,
-                        marker: { size: 3, color: colors[i % colors.length], opacity: 0.9, line: {width: 0.5, color: '#000'} }
-                    };
-                });
-
-                const layout = {
-                    margin: { l:0,r:0,t:0,b:0 },
-                    paper_bgcolor: 'transparent',
-                    scene: {
-                        bgcolor: 'transparent',
-                        xaxis: {showbackground: false, color: '#475569'},
-                        yaxis: {showbackground: false, color: '#475569'},
-                        zaxis: {showbackground: false, color: '#475569'}
-                    },
-                    legend: { font: {color: '#cbd5e1'} },
-                    showlegend: true
-                };
-
-                Plotly.react('plotly-3d-div', traces, layout, {responsive:true});
+                const layer = document.getElementById('pca-layer-select').value || Object.keys(this.data.proj)[0];
+                if (!layer) return;
+                const points = this.data.proj[layer] || [];
+                const trace = { x: points.map(p=>p.x), y: points.map(p=>p.y), z: points.map(p=>p.z), mode: 'markers', type: 'scatter3d', marker: { size: 2, color: '#06b6d4' } };
+                Plotly.react('plotly-3d-div', [trace], { margin: { t: 0, l: 0, r: 0, b: 0 }, paper_bgcolor: 'transparent', scene: { bgcolor: 'transparent' } });
             }
         }
-
-        // Boot
-        window.addEventListener('DOMContentLoaded', () => {
-            window.missionControl = new MissionControlApp();
-        });
+        window.addEventListener('DOMContentLoaded', () => window.missionControl = new MissionControlApp());
     </script>
 </body>
 </html>
