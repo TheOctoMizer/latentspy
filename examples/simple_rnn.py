@@ -1,8 +1,12 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import latentspy as ls
 
-# LatentSpy works across all PyTorch devices (CUDA/MPS/CPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
 print(f'Using device: {device}')
 
@@ -15,7 +19,6 @@ class SimpleRNNModel(nn.Module):
         self.fc = nn.Linear(hidden_dim, vocab_size)
     
     def forward(self, x):
-        # We can watch any part of the forward flow
         x = self.embedding(x)
         output, _ = self.rnn(x) # RNN layer emits both output and hidden
         x = self.fc(output)
@@ -23,10 +26,10 @@ class SimpleRNNModel(nn.Module):
 
 vocab_size = 50
 model = SimpleRNNModel(vocab_size=vocab_size).to(device)
-input_data = torch.randint(0, vocab_size, (1, 10)).to(device) # [batch, seq]
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # 2. Attach LatentSpy to the model
-# Using 'auto' finds the common layers, or specify them for exact control
 monitor = ls.watch(
     model, 
     layers=["embedding", "rnn", "fc"],
@@ -35,30 +38,55 @@ monitor = ls.watch(
         ls.Metric.SPARSITY, 
         ls.Metric.KURTOSIS,
         ls.Metric.PATCHINESS
-    ]
+    ],
+    experiment_name="simple_rnn_example",
+    log_type="db",
+    val_interval=10
 )
 
-# 3. Model Execution
-# monitor.step() increments the internal step counter for time-series logging
-monitor.step()
+# 3. Model Execution & Training Loop
+print("\n--- Starting Training Example ---")
+model.train()
+TOTAL_STEPS = 50
 
-print("\n--- Executing Forward Pass ---")
-output = model(input_data)
+for step in range(1, TOTAL_STEPS + 1):
+    input_data = torch.randint(0, vocab_size, (8, 10), device=device) # [batch, seq]
+    target = torch.randint(0, vocab_size, (8, 10), device=device)
+    
+    monitor.step()
+    optimizer.zero_grad()
+    
+    output = model(input_data)
+    # Reshape for cross entropy: [batch*seq, vocab_size] vs [batch*seq]
+    loss = criterion(output.view(-1, vocab_size), target.view(-1))
+    loss.backward()
+    optimizer.step()
+    
+    monitor.log_scalar('train_loss', loss.item())
+    
+    # 4. Handle Geometric Validation Rounds
+    if monitor.should_run_validation():
+        print(f" ► [Step {step}] Running Geometric Validation Round...")
+        val_batches = [torch.randint(0, vocab_size, (8, 10), device=device) for _ in range(2)]
+        monitor.run_validation_pp(val_batches)
+        
+    monitor.log()
+    
+    if step % 10 == 0:
+        print(f"Step {step:03d}/{TOTAL_STEPS} | Loss: {loss.item():.4f}")
 
-# 4. Extracting Results
-# monitor.log() computes the metrics for the captured activations
+# 5. Extracting Results
+print("\n--- Diagnostic Results (Quick Glance) ---")
 results = monitor.log()
 
-print("\n--- Diagnostic Results (Quick Glance) ---")
 if results:
     for layer, metrics in results.items():
+        if layer == '__scalars__': continue
         print(f"\nLayer: {layer}")
-        # Only show a few metrics for this example
         for k in ['activation_norm', 'patchiness', 'kurtosis']:
             if k in metrics:
                 print(f"  {k:<16}: {metrics[k]:.4f}")
 
-# 5. Cleanup
-# Always remove the handles to prevent memory buildup in long-running environments
+# 6. Cleanup
 monitor.remove()
 print("\nLatentSpy handles detached successfully.")

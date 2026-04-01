@@ -1,5 +1,10 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import latentspy as ls
 
 # LatentSpy works across all PyTorch devices (CUDA/MPS/CPU)
@@ -23,10 +28,10 @@ class SimpleCNNModel(nn.Module):
         return x
 
 model = SimpleCNNModel().to(device)
-input_data = torch.randn(1, 1, 9, 9).to(device) # [batch, channel, height, width]
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # 2. Attach LatentSpy to the model
-# You can specify exact layers by name or use 'auto' to capture everything
 monitor = ls.watch(
     model, 
     layers=["conv1", "conv2", "fc1"],
@@ -35,30 +40,56 @@ monitor = ls.watch(
         ls.Metric.EFFECTIVE_RANK, 
         ls.Metric.PATCHINESS,
         ls.Metric.RECONSTRUCTION
-    ]
+    ],
+    experiment_name="simple_cnn_example",
+    log_type="db",
+    val_interval=10 # Example validation interval
 )
 
-# 3. Model Execution
-# monitor.step() increments the internal step counter for time-series logging
-monitor.step()
+# 3. Model Execution & Training Loop
+print("\n--- Starting Training Example ---")
+model.train()
+TOTAL_STEPS = 50
 
-print("\n--- Executing Forward Pass ---")
-output = model(input_data)
+for step in range(1, TOTAL_STEPS + 1):
+    input_data = torch.randn(8, 1, 9, 9, device=device) # [batch, channel, height, width]
+    target = torch.randint(0, 10, (8,), device=device)
+    
+    # Let LatentSpy know a new training step has started
+    monitor.step()
+    
+    optimizer.zero_grad()
+    output = model(input_data)
+    loss = criterion(output, target)
+    loss.backward()
+    optimizer.step()
+    
+    monitor.log_scalar('train_loss', loss.item())
+    
+    # 4. Handle Geometric Validation Rounds
+    if monitor.should_run_validation():
+        print(f" ► [Step {step}] Running Geometric Validation Round...")
+        val_batches = [torch.randn(8, 1, 9, 9, device=device) for _ in range(2)]
+        monitor.run_validation_pp(val_batches)
+        
+    monitor.log() # Log standard metrics (norms, sparsity)
+    
+    if step % 10 == 0:
+        print(f"Step {step:03d}/{TOTAL_STEPS} | Loss: {loss.item():.4f}")
 
-# 4. Extracting Results
-# monitor.log() computes the metrics for the captured activations
+# 5. Extracting Results
+print("\n--- Diagnostic Results (Quick Glance) ---")
 results = monitor.log()
 
-print("\n--- Diagnostic Results (Quick Glance) ---")
 if results:
     for layer, metrics in results.items():
+        if layer == '__scalars__': continue
         print(f"\nLayer: {layer}")
         # Only show the most interesting highlights for this example
         for k in ['activation_norm', 'patchiness', 'effective_rank']:
             if k in metrics:
                 print(f"  {k:<16}: {metrics[k]:.4f}")
 
-# 5. Cleanup
-# Always remove the handles to prevent memory buildup in long-running environments
+# 6. Cleanup
 monitor.remove()
 print("\nLatentSpy handles detached successfully.")

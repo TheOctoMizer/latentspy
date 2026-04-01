@@ -1,8 +1,12 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import latentspy as ls
 
-# LatentSpy works across all PyTorch devices (CUDA/MPS/CPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
 print(f'Using device: {device}')
 
@@ -18,14 +22,13 @@ class SimpleTransformerModel(nn.Module):
         )
     
     def forward(self, x):
-        # We can watch any part of the forward flow
         return self.mlp(self.attn(x))
 
 model = SimpleTransformerModel().to(device)
-input_data = torch.randn(1, 32, 32).to(device) # [batch, seq, dim]
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # 2. Attach LatentSpy to the model
-# 'layers=auto' will find all Linear, Conv, and Attention layers automatically
 monitor = ls.watch(
     model, 
     layers='auto',
@@ -35,30 +38,54 @@ monitor = ls.watch(
         ls.Metric.PATCHINESS,
         ls.Metric.RECONSTRUCTION,
         ls.Metric.EEE
-    ]
+    ],
+    experiment_name="simple_transformer_example",
+    log_type="db",
+    val_interval=10
 )
 
-# 3. Model Execution
-# monitor.step() increments the internal step counter for time-series logging
-monitor.step()
+# 3. Model Execution & Training Loop
+print("\n--- Starting Training Example ---")
+model.train()
+TOTAL_STEPS = 50
 
-print("\n--- Executing Forward Pass ---")
-output = model(input_data)
+for step in range(1, TOTAL_STEPS + 1):
+    input_data = torch.randn(8, 32, 32, device=device) # [batch, seq, dim]
+    target = torch.randn(8, 32, 32, device=device)
+    
+    monitor.step()
+    optimizer.zero_grad()
+    
+    output = model(input_data)
+    loss = criterion(output, target)
+    loss.backward()
+    optimizer.step()
+    
+    monitor.log_scalar('train_loss', loss.item())
+    
+    # 4. Handle Geometric Validation Rounds
+    if monitor.should_run_validation():
+        print(f" ► [Step {step}] Running Geometric Validation Round...")
+        val_batches = [torch.randn(8, 32, 32, device=device) for _ in range(2)]
+        monitor.run_validation_pp(val_batches)
+        
+    monitor.log()
+    
+    if step % 10 == 0:
+        print(f"Step {step:03d}/{TOTAL_STEPS} | Loss: {loss.item():.4f}")
 
-# 4. Extracting Results
-# monitor.log() computes the metrics for the captured activations
+# 5. Extracting Results
+print("\n--- Diagnostic Results (Quick Glance) ---")
 results = monitor.log()
 
-print("\n--- Diagnostic Results (Quick Glance) ---")
 if results:
     for layer, metrics in results.items():
+        if layer == '__scalars__': continue
         print(f"\nLayer: {layer}")
-        # Only show the most interesting highlights for this example
         for k in ['activation_norm', 'patchiness', 'effective_rank']:
             if k in metrics:
                 print(f"  {k:<16}: {metrics[k]:.4f}")
 
-# 5. Cleanup
-# Always remove the handles to prevent memory buildup in long-running environments
+# 6. Cleanup
 monitor.remove()
 print("\nLatentSpy handles detached successfully.")
