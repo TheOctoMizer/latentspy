@@ -29,6 +29,11 @@ def reconstruction_metrics(activations: torch.Tensor, k: int = 256) -> dict:
     if k < 1:
         return {"reconstruction_error": 0.0, "reconstruction_skew": 0.0}
 
+    # Guard against NaN/Inf before clustering and numpy ops.
+    # Non-finite values cause FAISS to throw "bad parameter" and corrupt RE/RS values.
+    if not np.isfinite(activations_np).all():
+        return {"reconstruction_error": 0.0, "reconstruction_skew": 0.0}
+
     # Mean-center for geometry-only signal (matches patchiness pre-processing)
     activations_np = activations_np - activations_np.mean(axis=0, keepdims=True)
 

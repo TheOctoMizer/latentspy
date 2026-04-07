@@ -4,6 +4,7 @@ import multiprocessing
 import threading
 import queue
 import time
+import gc
 from typing import List, Union, Optional, Dict, Any
 from . import metrics
 from .hooks import register_hooks
@@ -470,10 +471,14 @@ class LatentMonitor:
                     "snapshots": snapshots
                 })
             except queue.Full:
-                # Val worker is still busy — skip this validation round rather than OOM
-                print(f"LatentSpy: Val queue full at step {self.global_step}, skipping validation round.")
+                # Val worker is still busy — skip this validation round rather than OOM.
+                # If this fires repeatedly, increase VAL_INTERVAL so the worker has more
+                # time to finish before the next validation triggers.
+                print(f"LatentSpy: Val queue full at step {self.global_step}, skipping validation round. "
+                      f"Consider increasing val_interval (current: {self.val_interval}).")
                 for t in snapshots.values():
                     del t
+                gc.collect()
 
         # Clear local buffer and fully disable validation mode
         self.val_activations.clear()
@@ -516,6 +521,10 @@ class LatentMonitor:
         
         self._last_val_results = results
         self.storage.update(results, step=step, is_validation=True, commit=commit)
+        # Force a GC cycle after processing all validation tensors.
+        # Large numpy/FAISS allocations don't always release immediately on `del`;
+        # this ensures memory is reclaimed before the next validation round arrives.
+        gc.collect()
 
     def _start_dashboard(self):
         """Start the dashboard server in a background process."""

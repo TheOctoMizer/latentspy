@@ -1,4 +1,3 @@
-import torch
 import numpy as np
 import faiss
 from typing import Tuple, Dict, Any
@@ -33,16 +32,24 @@ def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int =
     
     total_tokens, hidden_dim = activations_np.shape
     
+    # Guard against non-finite values — FAISS will throw an opaque "bad parameter"
+    # error or silently produce garbage if NaN/Inf values are present.
+    if not np.isfinite(activations_np).all():
+        raise ValueError("Input activations contain NaN or Inf values. Skipping clustering.")
+    
     k = min(k, total_tokens // 2)
     if k < 2:
         raise ValueError(f"Not enough data points for clustering. Need at least 4 points, got {total_tokens}")
     
+    # Always run on CPU to avoid competing with the training model for GPU memory.
+    # The val-worker runs in a background thread; CPU K-Means is fast enough and
+    # eliminates the "bad parameter" / OOM errors caused by GPU allocation failures.
     kmeans = faiss.Kmeans(
         d=hidden_dim,
         k=k,
         niter=niter,
         verbose=False,
-        gpu=torch.cuda.is_available() and hasattr(faiss, 'StandardGpuResources')
+        gpu=False
     )
     
     kmeans.train(activations_np)
@@ -63,7 +70,7 @@ def quantize_latent_space(activations_np: np.ndarray, k: int = 256, niter: int =
         'labels_shape': cluster_labels.shape,
         'inertia': float(kmeans.obj[0]) if hasattr(kmeans, 'obj') and len(kmeans.obj) > 0 else None,
         'niter': niter,
-        'gpu_used': torch.cuda.is_available() and hasattr(faiss, 'StandardGpuResources'),
+        'gpu_used': False,
         'unique_labels': len(np.unique(cluster_labels)),
         'empty_clusters': k - len(np.unique(cluster_labels))
     }

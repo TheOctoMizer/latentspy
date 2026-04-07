@@ -56,6 +56,11 @@ def patchiness(activations: torch.Tensor, k: int = 256) -> float:
     if k < 2:
         return 1.0
 
+    # Guard against NaN/Inf: can arise from exploding activations even in "healthy"
+    # runs. FAISS will throw an opaque "bad parameter" error if passed non-finite data.
+    if not np.isfinite(activations_np).all():
+        return 1.0  # Neutral value; the dead_neuron / activation_norm alerts will fire separately
+
     if np.std(activations_np) < 1e-8:
         # All representations identical → fully collapsed → PP = k (maximum patchiness)
         return float(k)
