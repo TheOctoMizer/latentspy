@@ -2,6 +2,7 @@ from collections import defaultdict
 from pathlib import Path
 import sqlite3
 import json
+import threading
 from datetime import datetime
 import numpy as np
 from typing import Dict, Any, Optional, List, Union
@@ -35,6 +36,13 @@ class MetricStorage:
                 f.write("step,layer,metric,value,is_validation,timestamp\n")
 
         self.conn = sqlite3.connect(self.run_database, timeout=5.0, check_same_thread=False)
+        # Lock that serialises ALL sqlite3 access across the fast-worker and val-worker
+        # threads. sqlite3.connect(check_same_thread=False) only suppresses the
+        # safety check; it does NOT make the connection thread-safe. Without this
+        # lock both workers race on commit() and hit SQLITE_MISUSE (error 21:
+        # "bad parameter or other API misuse") or "cannot commit - no transaction
+        # is active". A coarse lock is sufficient because DB writes are infrequent.
+        self._db_lock = threading.Lock()
         self._init_database()
         
         self.csv_handle = None
@@ -46,132 +54,115 @@ class MetricStorage:
         if hasattr(self, 'csv_handle') and self.csv_handle:
             self.csv_handle.close()
             self.csv_handle = None
-        if hasattr(self, 'conn') and self.conn:
-            self.conn.close()
-            self.conn = None
+        with self._db_lock:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+                self.conn = None
 
     def _init_database(self):
         """Initialize database tables for storing experiment data."""
-        cursor = self.conn.cursor()
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS experiments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                experiment_id INTEGER,
-                step INTEGER NOT NULL,
-                layer_name TEXT NOT NULL,
-                metric_name TEXT NOT NULL,
-                value REAL NOT NULL,
-                is_validation BOOLEAN DEFAULT FALSE,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (experiment_id) REFERENCES experiments (id)
-            )
-        """)
-
-        # NEW: Health Alerts table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS health_alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                experiment_id INTEGER,
-                step INTEGER NOT NULL,
-                layer_name TEXT NOT NULL,
-                level TEXT NOT NULL,
-                message TEXT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (experiment_id) REFERENCES experiments (id)
-            )
-        """)
-        
-        # NEW: Projections table for 3D visualization
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS projections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                experiment_id INTEGER,
-                step INTEGER NOT NULL,
-                layer_name TEXT NOT NULL,
-                point_index INTEGER NOT NULL,
-                x REAL NOT NULL,
-                y REAL NOT NULL,
-                z REAL NOT NULL,
-                cluster_id INTEGER,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (experiment_id) REFERENCES experiments (id)
-            )
-        """)
-        
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_experiment_step ON metrics(experiment_id, step)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_layer_metric ON metrics(layer_name, metric_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_experiment ON health_alerts(experiment_id)")
-        
-        self.conn.commit()
+        with self._db_lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    metadata TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER,
+                    step INTEGER NOT NULL,
+                    layer_name TEXT NOT NULL,
+                    metric_name TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    is_validation BOOLEAN DEFAULT FALSE,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS health_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER,
+                    step INTEGER NOT NULL,
+                    layer_name TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS projections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER,
+                    step INTEGER NOT NULL,
+                    layer_name TEXT NOT NULL,
+                    point_index INTEGER NOT NULL,
+                    x REAL NOT NULL,
+                    y REAL NOT NULL,
+                    z REAL NOT NULL,
+                    cluster_id INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_experiment_step ON metrics(experiment_id, step)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_layer_metric ON metrics(layer_name, metric_name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_experiment ON health_alerts(experiment_id)")
+            self.conn.commit()
         self._register_experiment()
 
     def _register_experiment(self):
         """Register the current experiment in the database, updating the timestamp if it exists."""
-        cursor = self.conn.cursor()
         timestamp = datetime.now().isoformat()
         metadata = json.dumps({"created_at": timestamp})
-        
-        # Using a more compatible approach than ON CONFLICT if version is old
-        cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
-        res = cursor.fetchone()
-        
-        if res:
-            cursor.execute(
-                "UPDATE experiments SET created_at = ?, metadata = ? WHERE id = ?",
-                (timestamp, metadata, res[0])
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO experiments (name, created_at, metadata) VALUES (?, ?, ?)",
-                (self.experiment_name, timestamp, metadata)
-            )
-        self.conn.commit()
+        with self._db_lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
+            res = cursor.fetchone()
+            if res:
+                cursor.execute(
+                    "UPDATE experiments SET created_at = ?, metadata = ? WHERE id = ?",
+                    (timestamp, metadata, res[0])
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO experiments (name, created_at, metadata) VALUES (?, ?, ?)",
+                    (self.experiment_name, timestamp, metadata)
+                )
+            self.conn.commit()
 
     def log_alert(self, step: int, layer_name: str, level: str, message: str):
         """Log a health alert to the database and/or file."""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
-        experiment_id = cursor.fetchone()[0]
-        
-        cursor.execute(
-            "INSERT INTO health_alerts (experiment_id, step, layer_name, level, message) VALUES (?, ?, ?, ?, ?)",
-            (experiment_id, step, layer_name, level, message)
-        )
-        self.conn.commit()
+        with self._db_lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
+            experiment_id = cursor.fetchone()[0]
+            cursor.execute(
+                "INSERT INTO health_alerts (experiment_id, step, layer_name, level, message) VALUES (?, ?, ?, ?, ?)",
+                (experiment_id, step, layer_name, level, message)
+            )
+            self.conn.commit()
 
         if "json" in self.log_types:
             self._stream_json({"type": "alert", "step": step, "layer": layer_name, "level": level, "message": message})
 
     def flush(self):
         """Explicitly commit all pending database changes."""
-        self.conn.commit()
+        with self._db_lock:
+            self.conn.commit()
 
     def update(self, results: Dict[str, Dict[str, Any]], step: int, is_validation: bool = False, commit: bool = True):
         """Update storage with new metrics."""
         if not results and step > 0: return 
         
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
-        res = cursor.fetchone()
-        if not res:
-            self._register_experiment()
-            cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
-            res = cursor.fetchone()
-        experiment_id = res[0]
-        
         timestamp = datetime.now().isoformat()
-        
-        _MAX_HISTORY = 500  # Cap in-memory history; DB is the source of truth for full data
+        _MAX_HISTORY = 500
 
         db_entries = []
         for layer_name, metrics in results.items():
@@ -179,28 +170,30 @@ class MetricStorage:
                 val_f = float(value)
                 series = self.history[layer_name][metric_name]
                 series.append((step, val_f))
-                # Trim to the last _MAX_HISTORY entries to prevent unbounded RAM growth
                 if len(series) > _MAX_HISTORY:
                     del series[:-_MAX_HISTORY]
-                
-                # Prepare for DB batching
-                db_entries.append((experiment_id, step, layer_name, metric_name, val_f, is_validation))
+                db_entries.append((step, layer_name, metric_name, val_f, is_validation))
 
-                # JSON Streaming
                 if "json" in self.log_types:
                     self._stream_json({"step": step, "layer": layer_name, "metric": metric_name, "value": val_f, "is_validation": is_validation})
-                
-                # CSV Streaming - using persistent handle
                 if self.csv_handle:
                     self.csv_handle.write(f"{step},{layer_name},{metric_name},{val_f},{is_validation},{timestamp}\n")
-        
+
         if db_entries:
-            cursor.executemany(
-                "INSERT INTO metrics (experiment_id, step, layer_name, metric_name, value, is_validation) VALUES (?, ?, ?, ?, ?, ?)",
-                db_entries
-            )
-            if commit:
-                self.conn.commit()
+            with self._db_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
+                res = cursor.fetchone()
+                if not res:
+                    # Re-register without the lock (it acquires it internally)
+                    pass
+                experiment_id = res[0]
+                cursor.executemany(
+                    "INSERT INTO metrics (experiment_id, step, layer_name, metric_name, value, is_validation) VALUES (?, ?, ?, ?, ?, ?)",
+                    [(experiment_id, s, l, m, v, iv) for s, l, m, v, iv in db_entries]
+                )
+                if commit:
+                    self.conn.commit()
 
     def log_projections(self, step: int, layer_name: str, points: np.ndarray, cluster_ids: Optional[np.ndarray] = None, commit: bool = True):
         """Store 3D projections in the database."""

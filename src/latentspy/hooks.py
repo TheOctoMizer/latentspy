@@ -22,13 +22,14 @@ def register_hooks(model, layer_names, activations_dict, val_dict=None):
             if val_dict is not None and val_dict.get("__enabled__", False):
                 val_dict.setdefault(name, []).append(actual_output.detach().cpu())
             elif activations_dict.get("__enabled__", True):
-                device_type = actual_output.device.type
-                if device_type == "cuda":
-                    # CUDA: keep on device; log() will do a non-blocking async copy
-                    activations_dict[name] = actual_output.detach()
-                else:
-                    # MPS / CPU: move to CPU now to avoid deferred memory growth
-                    activations_dict[name] = actual_output.detach().cpu()
+                # Always move to CPU immediately, regardless of device.
+                # Keeping CUDA tensors alive here shares storage with the model's
+                # intermediate activations, preventing the CUDA caching allocator
+                # from reclaiming that memory after the forward pass. Over thousands
+                # of steps this causes a steady RSS leak that eventually triggers
+                # the OOM killer — this was absent on MPS because MPS always used
+                # the .cpu() path. Unifying both paths fixes the leak.
+                activations_dict[name] = actual_output.detach().cpu()
         return hook
 
     for name, module in model.named_modules():

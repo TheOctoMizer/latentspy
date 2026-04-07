@@ -72,8 +72,10 @@ def run_experiment():
         val_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
         # Native Dataloaders
-        num_workers = 2 if DEVICE.type == "cuda" else 0
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
+        # num_workers=0: with a GPU-bound small-batch workload, background workers
+        # only add memory pressure (pinned buffers) without throughput benefit.
+        # pin_memory=False for the same reason: non-swappable RSS grows steadily.
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=False, num_workers=0)
         
         def get_val_batch(loader):
             iterator = iter(loader)
@@ -84,7 +86,7 @@ def run_experiment():
                     iterator = iter(loader)
                     yield next(iterator)
         
-        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
+        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=False, num_workers=0)
         val_iterator = get_val_batch(val_loader)
 
     except Exception as e:
@@ -180,6 +182,11 @@ def run_experiment():
                     monitor.log_scalar("val_loss", avg_val_loss)
                     print(f"   [Val] Step: {global_step:5d} | Val Loss: {avg_val_loss:.4f}")
                     model.train()
+                    # Free val tensors and flush CUDA allocator pool immediately
+                    # to prevent peak-memory spikes from compounding across rounds.
+                    del val_batches
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
                 monitor.log()
                 monitor.log_scalar("loss", loss.item())

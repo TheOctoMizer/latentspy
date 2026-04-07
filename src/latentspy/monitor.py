@@ -259,12 +259,12 @@ class LatentMonitor:
         if not self.activations.get("__enabled__", False):
             return {}
 
-        # Capture snapshots immediately while activations are fresh
-        # We must clone to CPU here to release GPU memory and avoid synchronization later
+        # Capture snapshots — activations are already on CPU (moved by the hook)
+        # so .detach().cpu() is a no-op move + we just .clone() to own the data.
         snapshots = {}
         for name, act in self.activations.items():
             if name != "__enabled__" and isinstance(act, torch.Tensor):
-                snapshots[name] = act.detach().cpu().clone()
+                snapshots[name] = act.clone()
         
         if not snapshots:
             return {}
@@ -525,6 +525,11 @@ class LatentMonitor:
         # Large numpy/FAISS allocations don't always release immediately on `del`;
         # this ensures memory is reclaimed before the next validation round arrives.
         gc.collect()
+        # Flush the CUDA caching allocator's free-block pool so that memory
+        # released by GC is actually returned to the OS / available to other
+        # allocations, rather than sitting in PyTorch's internal cache.
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _start_dashboard(self):
         """Start the dashboard server in a background process."""
