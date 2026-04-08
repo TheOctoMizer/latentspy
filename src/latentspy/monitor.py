@@ -545,6 +545,7 @@ class LatentMonitor:
     def remove(self):
         """Stop dashboard server and background threads, and remove hooks."""
         self._stop_event.set()
+        
         # Signal both workers to stop gracefully
         for q in [self._queue, self._val_queue]:
             try:
@@ -552,6 +553,15 @@ class LatentMonitor:
             except Exception:
                 pass
         
+        # Wait for workers to finish pending tasks before closing storage.
+        # This prevents the "NoneType object has no attribute 'cursor'" error
+        # where the worker tries to log a final result but the DB is already closed.
+        if hasattr(self, '_worker_thread') and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
+        if hasattr(self, '_val_worker_thread') and self._val_worker_thread.is_alive():
+            # Val worker does heavier work, give it slightly more time
+            self._val_worker_thread.join(timeout=5.0)
+
         if hasattr(self, 'storage'):
             self.storage.close()
 

@@ -140,6 +140,7 @@ class MetricStorage:
     def log_alert(self, step: int, layer_name: str, level: str, message: str):
         """Log a health alert to the database and/or file."""
         with self._db_lock:
+            if self.conn is None: return
             cursor = self.conn.cursor()
             cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
             experiment_id = cursor.fetchone()[0]
@@ -155,6 +156,7 @@ class MetricStorage:
     def flush(self):
         """Explicitly commit all pending database changes."""
         with self._db_lock:
+            if self.conn is None: return
             self.conn.commit()
 
     def update(self, results: Dict[str, Dict[str, Any]], step: int, is_validation: bool = False, commit: bool = True):
@@ -181,6 +183,7 @@ class MetricStorage:
 
         if db_entries:
             with self._db_lock:
+                if self.conn is None: return
                 cursor = self.conn.cursor()
                 cursor.execute("SELECT id FROM experiments WHERE name = ?", (self.experiment_name,))
                 res = cursor.fetchone()
