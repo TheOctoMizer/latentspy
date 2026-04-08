@@ -25,17 +25,8 @@ from datasets import load_dataset
 import latentspy as ls
 
 
-# ---------------------------------------------------------------------------
-# Masked Language Modeling collator wrapper
-# ---------------------------------------------------------------------------
-# DataCollatorForLanguageModeling masks tokens on-the-fly (default mlm_prob=0.15).
-# It returns  { input_ids, attention_mask, token_type_ids, labels }
-# where labels == -100 for un-masked positions (CrossEntropyLoss ignores those).
-# ---------------------------------------------------------------------------
-
-
 def run_experiment():
-    EXPERIMENT_NAME: str = "bert_mlm_baseline"
+    EXPERIMENT_NAME: str = "unstable_bert_training"
     DEVICE = torch.device(
         "cuda" if torch.cuda.is_available()
         else "mps" if torch.mps.is_available()
@@ -44,35 +35,32 @@ def run_experiment():
     print(f"Using device: {DEVICE}")
 
     # ------------------------------------------------------------------
-    # HEALTHY BASELINE HYPERPARAMETERS (BERT MLM)
+    # UNSTABLE HYPERPARAMETERS (The point of failure demo)
     # ------------------------------------------------------------------
-    LEARNING_RATE   = 1e-4       # Typical BERT pre-training range
+    LEARNING_RATE   = 0.05       # Extremely high for BERT pre-training
     BATCH_SIZE      = 16
     NUM_EPOCHS      = 3
-    MLM_PROBABILITY = 0.15       # Standard 15 % mask rate
+    MLM_PROBABILITY = 0.15
     MAX_SEQ_LEN     = 128
+    WARMUP_STEPS    = 0          # No warmup
+    MAX_GRAD_NORM   = 100.0      # No clipping
 
     # LatentSpy observation cadence
-    VAL_INTERVAL    = 750        # steps between validation rounds
-    SAMPLE_INTERVAL = 200        # steps between live metric samples
-    WARMUP_STEPS    = 500
-    MAX_GRAD_NORM   = 1.0
+    VAL_INTERVAL    = 750
+    SAMPLE_INTERVAL = 200
 
     # Config summary
-    print(f"\n[Run Config] {EXPERIMENT_NAME}")
-    print(f"  Params : LR={LEARNING_RATE}, BS={BATCH_SIZE}, "
-          f"Epochs={NUM_EPOCHS}, MLM_P={MLM_PROBABILITY}")
+    print(f"\n[Run Config] {EXPERIMENT_NAME} (UNSTABLE)")
+    print(f"  Params : LR={LEARNING_RATE}, BS={BATCH_SIZE}, Epochs={NUM_EPOCHS}")
     print(f"  Monitor: Val_Int={VAL_INTERVAL}, Sample_Int={SAMPLE_INTERVAL}")
 
-    # ------------------------------------------------------------------
     # 1. Model & Tokenizer
-    # ------------------------------------------------------------------
     print("\nInitializing BERT model...")
     tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 
     config = BertConfig(
         vocab_size=tokenizer.vocab_size,
-        hidden_size=256,          # Light-weight for experimentation speed
+        hidden_size=256,
         num_hidden_layers=4,
         num_attention_heads=8,
         intermediate_size=1024,
@@ -81,12 +69,8 @@ def run_experiment():
         pad_token_id=tokenizer.pad_token_id,
     )
     model = BertForMaskedLM(config).to(DEVICE)
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"  Parameters: {total_params:,}")
 
-    # ------------------------------------------------------------------
     # 2. Dataset Preparation
-    # ------------------------------------------------------------------
     print("\nLoading dataset...")
     try:
         dataset = load_dataset("roneneldan/TinyStories", split="train")
@@ -103,17 +87,13 @@ def run_experiment():
             )
 
         print("Tokenizing datasets...")
-        train_dataset = train_raw.map(tokenize_fn, batched=True,
-                                      remove_columns=["text"], desc="Train")
-        val_dataset   = val_raw.map(tokenize_fn, batched=True,
-                                    remove_columns=["text"], desc="Val")
+        train_dataset = train_raw.map(tokenize_fn, batched=True, remove_columns=["text"], desc="Train")
+        val_dataset   = val_raw.map(tokenize_fn, batched=True, remove_columns=["text"], desc="Val")
 
-        # Keep all BERT fields; MLM collator will add the `labels` column
         BERT_COLS = ["input_ids", "attention_mask", "token_type_ids"]
         train_dataset.set_format(type="torch", columns=BERT_COLS)
         val_dataset.set_format(type="torch", columns=BERT_COLS)
 
-        # MLM collator — masks 15 % of tokens each time a batch is drawn
         mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
             mlm=True,
@@ -121,17 +101,9 @@ def run_experiment():
             return_tensors="pt",
         )
 
-        # num_workers=0 & pin_memory=False for system stability
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-            collate_fn=mlm_collator,
-            pin_memory=False,
-            num_workers=0,
-        )
-
-        # Infinite validation iterator (mirrors healthy_training.py pattern)
+        # num_workers=0 and pin_memory=False for system stability
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=mlm_collator, pin_memory=False, num_workers=0)
+        
         def get_val_batch(loader):
             iterator = iter(loader)
             while True:
@@ -141,27 +113,14 @@ def run_experiment():
                     iterator = iter(loader)
                     yield next(iterator)
 
-        val_loader   = DataLoader(
-            val_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-            collate_fn=mlm_collator,
-            pin_memory=False,
-            num_workers=0,
-        )
+        val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=mlm_collator, pin_memory=False, num_workers=0)
         val_iterator = get_val_batch(val_loader)
 
     except Exception as e:
         print(f"Error loading dataset: {e}")
         sys.exit(1)
 
-    # ------------------------------------------------------------------
     # 3. LatentSpy Monitor
-    # ------------------------------------------------------------------
-    # BERT's core latent representations live in its hidden states.
-    # LatentSpy hooks the intermediate layer outputs to track the health
-    # of those representations during training.
-    # ------------------------------------------------------------------
     monitor = ls.watch(
         model,
         layers="auto",
@@ -182,13 +141,11 @@ def run_experiment():
         dashboard=True,
         metric_kwargs={"patchiness": {"k": 16}},
         val_metric_kwargs={"patchiness": {"k": 256}},
-        alert_warmup_steps=WARMUP_STEPS,
+        alert_warmup_steps=500,
         deep_metric_interval=5,
     )
 
-    # ------------------------------------------------------------------
-    # 4. Optimizer & Scheduler
-    # ------------------------------------------------------------------
+    # 4. Optimization Setup
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=LEARNING_RATE,
@@ -204,21 +161,15 @@ def run_experiment():
         num_training_steps=total_steps,
     )
 
-    # ------------------------------------------------------------------
     # 5. Training Loop
-    # ------------------------------------------------------------------
     loss_history = []
     global_step  = 0
 
-    print(f"\n--- MISSION START: {EXPERIMENT_NAME} ---")
-    print(f"Dashboard active at: http://localhost:8000")
+    print(f"\n--- MISSION START: {EXPERIMENT_NAME} (UNSTABLE) ---")
     try:
         model.train()
         for epoch in range(1, NUM_EPOCHS + 1):
-            print(f"\n[Epoch {epoch}/{NUM_EPOCHS}]")
-
             for step_in_epoch, batch in enumerate(train_loader, 1):
-                # Move to device; labels are produced by the MLM collator
                 input_ids      = batch["input_ids"].to(DEVICE, non_blocking=True)
                 attention_mask = batch["attention_mask"].to(DEVICE, non_blocking=True)
                 token_type_ids = batch.get("token_type_ids")
@@ -230,60 +181,36 @@ def run_experiment():
                 monitor.step()
 
                 optimizer.zero_grad()
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    token_type_ids=token_type_ids,
-                    labels=labels,
-                )
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids, labels=labels)
                 loss = outputs.loss
                 loss.backward()
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
-
                 optimizer.step()
                 scheduler.step()
 
-                # ----------------------------------------------------------
-                # Validation Round
-                # ----------------------------------------------------------
                 if monitor.should_run_validation():
                     val_batches = []
-                    # Pull enough batches to clear LatentSpy's 10 k-token cutoff
                     for _ in range(8):
                         vb = next(val_iterator)
                         vb = {k: v.to(DEVICE, non_blocking=True) for k, v in vb.items()}
                         val_batches.append(vb)
 
-                    # LatentSpy geometric metrics (Patchiness, EEE, …)
                     monitor.run_validation_pp(val_batches)
 
-                    # Standard MLM val-loss for ground-truth performance tracking
                     model.eval()
                     total_val_loss = 0.0
                     with torch.no_grad():
                         for vb in val_batches:
-                            v_out = model(
-                                input_ids=vb["input_ids"],
-                                attention_mask=vb["attention_mask"],
-                                token_type_ids=vb.get("token_type_ids"),
-                                labels=vb["labels"],
-                            )
+                            v_out = model(input_ids=vb["input_ids"], attention_mask=vb["attention_mask"], token_type_ids=vb.get("token_type_ids"), labels=vb["labels"])
                             total_val_loss += v_out.loss.item()
 
                     avg_val_loss = total_val_loss / len(val_batches)
                     monitor.log_scalar("val_loss", avg_val_loss)
-                    # MLM perplexity is a standard proxy for masked prediction quality
-                    val_perplexity = torch.exp(torch.tensor(avg_val_loss)).item()
-                    monitor.log_scalar("val_perplexity", val_perplexity)
-                    print(
-                        f"   [Val] Step: {global_step:5d} | "
-                        f"Val Loss: {avg_val_loss:.4f} | "
-                        f"Val PPL: {val_perplexity:.2f}"
-                    )
+                    print(f"   [Val] Step: {global_step:5d} | Val Loss: {avg_val_loss:.4f}")
                     model.train()
                     
-                    # Cleanup val tensors to release memory immediately
+                    # Cleanup val tensors
                     del val_batches
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
@@ -291,52 +218,20 @@ def run_experiment():
                 monitor.log()
                 monitor.log_scalar("loss", loss.item())
                 monitor.log_scalar("lr", scheduler.get_last_lr()[0])
-
                 loss_history.append(loss.item())
 
                 if global_step % 100 == 0 or global_step == 1:
-                    print(
-                        f"      Step: {global_step:5d} | "
-                        f"Train Loss: {loss.item():.4f} | "
-                        f"LR: {scheduler.get_last_lr()[0]:.2e}"
-                    )
+                    print(f"      Step: {global_step:5d} | Train Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e}")
 
     except KeyboardInterrupt:
-        print("\n\n[!] Training interrupted by user (Ctrl+C). Initiating graceful shutdown...")
+        print("\n\n[!] Interrupted.")
 
     finally:
         print(f"\n--- Training Completed / Halted ---")
-        if loss_history:
-            print(f"Final logged train loss : {loss_history[-1]:.4f}")
-            print(f"Loss improvement (Δ)    : {loss_history[0] - loss_history[-1]:.4f}")
-
-        if "train_loader" in locals():
+        if 'train_loader' in locals():
             del train_loader
-        gc.collect()
-
-        # Export run data
-        export_path = monitor.storage.export_experiment_data(EXPERIMENT_NAME)
-        print(f"Export: {export_path}")
-
-        # Save model & tokenizer
-        os.makedirs("models", exist_ok=True)
-        save_dir = f"models/{EXPERIMENT_NAME}"
-        model.save_pretrained(save_dir)
-        tokenizer.save_pretrained(save_dir)
-        print(f"Model & tokenizer saved to: {save_dir}/")
-
         monitor.remove()
-        del model, optimizer, monitor
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         gc.collect()
-
 
 if __name__ == "__main__":
-    try:
-        run_experiment()
-    except Exception as e:
-        print(f"\nFatal error in experiment: {e}")
-        raise
-    finally:
-        gc.collect()
+    run_experiment()

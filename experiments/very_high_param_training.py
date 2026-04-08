@@ -74,8 +74,9 @@ def run_experiment():
         val_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
         # Native Dataloaders
-        num_workers = 2 if DEVICE.type == "cuda" else 0
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
+        # num_workers=0: match the stable baseline to prevent OOM
+        # pin_memory=False: avoid non-swappable RSS growth
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=False, num_workers=0)
         
         def get_val_batch(loader):
             iterator = iter(loader)
@@ -86,7 +87,7 @@ def run_experiment():
                     iterator = iter(loader)
                     yield next(iterator)
         
-        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=num_workers)
+        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=False, num_workers=0)
         val_iterator = get_val_batch(val_loader)
 
     except Exception as e:
@@ -122,7 +123,7 @@ def run_experiment():
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=LEARNING_RATE,
-        weight_decay=0.0,
+        weight_decay=0.1,  # Match healthy baseline
         betas=(0.9, 0.95)
     )
     
@@ -182,6 +183,11 @@ def run_experiment():
                     monitor.log_scalar("val_loss", avg_val_loss)
                     print(f"   [Val] Step: {global_step:5d} | Val Loss: {avg_val_loss:.4f}")
                     model.train()
+                    
+                    # Explicitly free val_batches and flush CUDA allocator pool
+                    del val_batches
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
                 monitor.log()
                 monitor.log_scalar("loss", loss.item())
