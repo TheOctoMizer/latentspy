@@ -1,0 +1,337 @@
+Using device: mps
+
+[Run Config] lstm_healthy_baseline
+  Model: LSTM (2 layers, 256 hidden)
+
+Loading dataset...
+LatentSpy Dashboard started at http://localhost:8000
+
+--- MISSION START: lstm_healthy_baseline ---
+      Step:     1 | Train Loss: 10.8354 | LR: 2.00e-06
+      Step:   100 | Train Loss: 6.4379 | LR: 2.00e-04
+      Step:   200 | Train Loss: 5.7967 | LR: 4.00e-04
+      Step:   300 | Train Loss: 5.3539 | LR: 6.00e-04
+      Step:   400 | Train Loss: 4.8842 | LR: 8.00e-04
+      Step:   500 | Train Loss: 4.3698 | LR: 1.00e-03
+      Step:   600 | Train Loss: 4.1438 | LR: 1.00e-03
+[93m[1m[WARNING] High activation norm in fc (norm=1.61e+04).[0m
+      Step:   700 | Train Loss: 4.0021 | LR: 1.00e-03
+   [Val] Step:   750 | Val Loss: 3.8572
+      Step:   800 | Train Loss: 3.6872 | LR: 9.99e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.61e+04).[0m
+      Step:   900 | Train Loss: 3.7541 | LR: 9.99e-04
+      Step:  1000 | Train Loss: 3.7049 | LR: 9.98e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.63e+04).[0m
+      Step:  1100 | Train Loss: 3.8035 | LR: 9.97e-04
+[93m[1m[WARNING] High reconstruction skew in fc (RS=5.1). Non-uniform cluster quality.[0m
+      Step:  1200 | Train Loss: 3.5438 | LR: 9.96e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.68e+04).[0m
+      Step:  1300 | Train Loss: 3.4120 | LR: 9.95e-04
+      Step:  1400 | Train Loss: 3.1944 | LR: 9.94e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.64e+04).[0m
+   [Val] Step:  1500 | Val Loss: 3.1982
+      Step:  1500 | Train Loss: 3.0838 | LR: 9.93e-04
+      Step:  1600 | Train Loss: 3.4101 | LR: 9.91e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.70e+04).[0m
+      Step:  1700 | Train Loss: 3.3315 | LR: 9.89e-04
+      Step:  1800 | Train Loss: 3.1466 | LR: 9.88e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.69e+04).[0m
+      Step:  1900 | Train Loss: 3.1727 | LR: 9.86e-04
+      Step:  2000 | Train Loss: 3.1407 | LR: 9.83e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.77e+04).[0m
+      Step:  2100 | Train Loss: 2.9878 | LR: 9.81e-04
+      Step:  2200 | Train Loss: 3.2515 | LR: 9.79e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.83e+04).[0m
+   [Val] Step:  2250 | Val Loss: 3.5231
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.403). Clusters poorly defined.[0m
+      Step:  2300 | Train Loss: 2.8674 | LR: 9.76e-04
+      Step:  2400 | Train Loss: 2.7494 | LR: 9.73e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.87e+04).[0m
+      Step:  2500 | Train Loss: 2.9216 | LR: 9.71e-04
+      Step:  2600 | Train Loss: 3.0034 | LR: 9.68e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.85e+04).[0m
+      Step:  2700 | Train Loss: 3.1930 | LR: 9.65e-04
+      Step:  2800 | Train Loss: 2.8602 | LR: 9.61e-04
+[93m[1m[WARNING] High activation norm in fc (norm=1.93e+04).[0m
+      Step:  2900 | Train Loss: 2.9916 | LR: 9.58e-04
+   [Val] Step:  3000 | Val Loss: 2.9620
+      Step:  3000 | Train Loss: 2.7750 | LR: 9.54e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.422). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=1.99e+04).[0m
+      Step:  3100 | Train Loss: 2.5747 | LR: 9.51e-04
+      Step:  3200 | Train Loss: 2.9573 | LR: 9.47e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.05e+04).[0m
+      Step:  3300 | Train Loss: 3.0166 | LR: 9.43e-04
+      Step:  3400 | Train Loss: 2.7838 | LR: 9.39e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.05e+04).[0m
+      Step:  3500 | Train Loss: 2.8310 | LR: 9.35e-04
+      Step:  3600 | Train Loss: 2.7751 | LR: 9.30e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.06e+04).[0m
+      Step:  3700 | Train Loss: 2.9150 | LR: 9.26e-04
+   [Val] Step:  3750 | Val Loss: 2.9203
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.432). Clusters poorly defined.[0m
+      Step:  3800 | Train Loss: 2.8234 | LR: 9.21e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.14e+04).[0m
+      Step:  3900 | Train Loss: 2.8873 | LR: 9.17e-04
+      Step:  4000 | Train Loss: 2.7078 | LR: 9.12e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.14e+04).[0m
+      Step:  4100 | Train Loss: 2.7573 | LR: 9.07e-04
+      Step:  4200 | Train Loss: 2.6314 | LR: 9.02e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.19e+04).[0m
+      Step:  4300 | Train Loss: 2.7477 | LR: 8.97e-04
+      Step:  4400 | Train Loss: 2.6394 | LR: 8.91e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.14e+04).[0m
+   [Val] Step:  4500 | Val Loss: 2.8762
+      Step:  4500 | Train Loss: 2.7774 | LR: 8.86e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.450). Clusters poorly defined.[0m
+      Step:  4600 | Train Loss: 2.6027 | LR: 8.81e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.28e+04).[0m
+      Step:  4700 | Train Loss: 2.6886 | LR: 8.75e-04
+      Step:  4800 | Train Loss: 2.8228 | LR: 8.69e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.30e+04).[0m
+      Step:  4900 | Train Loss: 2.7611 | LR: 8.63e-04
+      Step:  5000 | Train Loss: 2.7951 | LR: 8.57e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.35e+04).[0m
+      Step:  5100 | Train Loss: 2.6037 | LR: 8.51e-04
+      Step:  5200 | Train Loss: 2.6094 | LR: 8.45e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.36e+04).[0m
+   [Val] Step:  5250 | Val Loss: 3.0025
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.455). Clusters poorly defined.[0m
+      Step:  5300 | Train Loss: 2.4869 | LR: 8.39e-04
+      Step:  5400 | Train Loss: 2.7891 | LR: 8.32e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.39e+04).[0m
+      Step:  5500 | Train Loss: 2.8168 | LR: 8.26e-04
+      Step:  5600 | Train Loss: 2.7516 | LR: 8.19e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.49e+04).[0m
+      Step:  5700 | Train Loss: 2.8224 | LR: 8.13e-04
+      Step:  5800 | Train Loss: 2.7023 | LR: 8.06e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.51e+04).[0m
+      Step:  5900 | Train Loss: 2.6321 | LR: 7.99e-04
+   [Val] Step:  6000 | Val Loss: 2.9053
+      Step:  6000 | Train Loss: 2.8674 | LR: 7.92e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.465). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=2.48e+04).[0m
+      Step:  6100 | Train Loss: 2.6768 | LR: 7.85e-04
+      Step:  6200 | Train Loss: 2.8128 | LR: 7.78e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.53e+04).[0m
+      Step:  6300 | Train Loss: 2.5793 | LR: 7.71e-04
+      Step:  6400 | Train Loss: 2.5407 | LR: 7.64e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.48e+04).[0m
+      Step:  6500 | Train Loss: 2.6490 | LR: 7.56e-04
+      Step:  6600 | Train Loss: 2.7258 | LR: 7.49e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.67e+04).[0m
+      Step:  6700 | Train Loss: 2.4936 | LR: 7.41e-04
+   [Val] Step:  6750 | Val Loss: 2.7540
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.471). Clusters poorly defined.[0m
+      Step:  6800 | Train Loss: 2.5919 | LR: 7.34e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.66e+04).[0m
+      Step:  6900 | Train Loss: 2.9977 | LR: 7.26e-04
+      Step:  7000 | Train Loss: 2.6500 | LR: 7.18e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.65e+04).[0m
+      Step:  7100 | Train Loss: 2.5743 | LR: 7.11e-04
+      Step:  7200 | Train Loss: 2.4913 | LR: 7.03e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.69e+04).[0m
+      Step:  7300 | Train Loss: 2.5839 | LR: 6.95e-04
+      Step:  7400 | Train Loss: 2.6677 | LR: 6.87e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.78e+04).[0m
+   [Val] Step:  7500 | Val Loss: 2.8450
+      Step:  7500 | Train Loss: 2.7047 | LR: 6.79e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.473). Clusters poorly defined.[0m
+      Step:  7600 | Train Loss: 2.3745 | LR: 6.71e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.76e+04).[0m
+      Step:  7700 | Train Loss: 2.3780 | LR: 6.63e-04
+      Step:  7800 | Train Loss: 2.5958 | LR: 6.55e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.77e+04).[0m
+      Step:  7900 | Train Loss: 2.7001 | LR: 6.46e-04
+      Step:  8000 | Train Loss: 2.8024 | LR: 6.38e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.85e+04).[0m
+      Step:  8100 | Train Loss: 2.6067 | LR: 6.30e-04
+      Step:  8200 | Train Loss: 2.4481 | LR: 6.21e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.91e+04).[0m
+   [Val] Step:  8250 | Val Loss: 2.6921
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.474). Clusters poorly defined.[0m
+      Step:  8300 | Train Loss: 2.3607 | LR: 6.13e-04
+      Step:  8400 | Train Loss: 2.4705 | LR: 6.05e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.94e+04).[0m
+      Step:  8500 | Train Loss: 2.6604 | LR: 5.96e-04
+      Step:  8600 | Train Loss: 2.4236 | LR: 5.88e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.93e+04).[0m
+      Step:  8700 | Train Loss: 2.7438 | LR: 5.79e-04
+      Step:  8800 | Train Loss: 2.7846 | LR: 5.71e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.93e+04).[0m
+      Step:  8900 | Train Loss: 2.6730 | LR: 5.62e-04
+   [Val] Step:  9000 | Val Loss: 2.7471
+      Step:  9000 | Train Loss: 2.7779 | LR: 5.54e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.478). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=3.07e+04).[0m
+      Step:  9100 | Train Loss: 2.2625 | LR: 5.45e-04
+      Step:  9200 | Train Loss: 2.4791 | LR: 5.37e-04
+[93m[1m[WARNING] High activation norm in fc (norm=2.99e+04).[0m
+      Step:  9300 | Train Loss: 2.5476 | LR: 5.28e-04
+      Step:  9400 | Train Loss: 2.5224 | LR: 5.19e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.07e+04).[0m
+      Step:  9500 | Train Loss: 2.3507 | LR: 5.11e-04
+      Step:  9600 | Train Loss: 2.6805 | LR: 5.02e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.09e+04).[0m
+      Step:  9700 | Train Loss: 2.8183 | LR: 4.94e-04
+   [Val] Step:  9750 | Val Loss: 2.8090
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.476). Clusters poorly defined.[0m
+      Step:  9800 | Train Loss: 2.6563 | LR: 4.85e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.01e+04).[0m
+      Step:  9900 | Train Loss: 2.6198 | LR: 4.76e-04
+      Step: 10000 | Train Loss: 2.8075 | LR: 4.68e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.13e+04).[0m
+      Step: 10100 | Train Loss: 2.4298 | LR: 4.59e-04
+      Step: 10200 | Train Loss: 2.4953 | LR: 4.51e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.17e+04).[0m
+      Step: 10300 | Train Loss: 2.4649 | LR: 4.42e-04
+      Step: 10400 | Train Loss: 2.4853 | LR: 4.33e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.13e+04).[0m
+   [Val] Step: 10500 | Val Loss: 2.6822
+      Step: 10500 | Train Loss: 2.4725 | LR: 4.25e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.480). Clusters poorly defined.[0m
+      Step: 10600 | Train Loss: 2.3856 | LR: 4.16e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.11e+04).[0m
+      Step: 10700 | Train Loss: 2.6595 | LR: 4.08e-04
+      Step: 10800 | Train Loss: 2.5933 | LR: 4.00e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.15e+04).[0m
+      Step: 10900 | Train Loss: 2.4354 | LR: 3.91e-04
+      Step: 11000 | Train Loss: 2.5553 | LR: 3.83e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.30e+04).[0m
+      Step: 11100 | Train Loss: 2.4182 | LR: 3.74e-04
+      Step: 11200 | Train Loss: 2.6133 | LR: 3.66e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.29e+04).[0m
+   [Val] Step: 11250 | Val Loss: 2.7636
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.482). Clusters poorly defined.[0m
+      Step: 11300 | Train Loss: 2.5659 | LR: 3.58e-04
+      Step: 11400 | Train Loss: 2.3781 | LR: 3.50e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.21e+04).[0m
+      Step: 11500 | Train Loss: 2.5796 | LR: 3.41e-04
+      Step: 11600 | Train Loss: 2.5884 | LR: 3.33e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.20e+04).[0m
+      Step: 11700 | Train Loss: 2.3600 | LR: 3.25e-04
+      Step: 11800 | Train Loss: 2.5101 | LR: 3.17e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.33e+04).[0m
+      Step: 11900 | Train Loss: 2.5656 | LR: 3.09e-04
+   [Val] Step: 12000 | Val Loss: 2.7598
+      Step: 12000 | Train Loss: 2.5044 | LR: 3.01e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.479). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=3.33e+04).[0m
+      Step: 12100 | Train Loss: 2.7123 | LR: 2.93e-04
+      Step: 12200 | Train Loss: 2.4833 | LR: 2.86e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.34e+04).[0m
+      Step: 12300 | Train Loss: 2.5416 | LR: 2.78e-04
+      Step: 12400 | Train Loss: 2.5135 | LR: 2.70e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.28e+04).[0m
+      Step: 12500 | Train Loss: 2.4144 | LR: 2.63e-04
+      Step: 12600 | Train Loss: 2.3805 | LR: 2.55e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.42e+04).[0m
+      Step: 12700 | Train Loss: 2.5099 | LR: 2.48e-04
+   [Val] Step: 12750 | Val Loss: 2.5276
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.486). Clusters poorly defined.[0m
+      Step: 12800 | Train Loss: 2.4609 | LR: 2.40e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.40e+04).[0m
+      Step: 12900 | Train Loss: 2.2996 | LR: 2.33e-04
+      Step: 13000 | Train Loss: 2.5458 | LR: 2.26e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.38e+04).[0m
+      Step: 13100 | Train Loss: 2.5983 | LR: 2.18e-04
+      Step: 13200 | Train Loss: 2.6256 | LR: 2.11e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.37e+04).[0m
+      Step: 13300 | Train Loss: 2.4715 | LR: 2.04e-04
+      Step: 13400 | Train Loss: 2.5184 | LR: 1.97e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.40e+04).[0m
+   [Val] Step: 13500 | Val Loss: 2.5784
+      Step: 13500 | Train Loss: 2.4849 | LR: 1.91e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.483). Clusters poorly defined.[0m
+      Step: 13600 | Train Loss: 2.6571 | LR: 1.84e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.41e+04).[0m
+      Step: 13700 | Train Loss: 2.4368 | LR: 1.77e-04
+      Step: 13800 | Train Loss: 2.3829 | LR: 1.71e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.46e+04).[0m
+      Step: 13900 | Train Loss: 2.2662 | LR: 1.64e-04
+      Step: 14000 | Train Loss: 2.4380 | LR: 1.58e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.49e+04).[0m
+      Step: 14100 | Train Loss: 2.5647 | LR: 1.52e-04
+      Step: 14200 | Train Loss: 2.2924 | LR: 1.46e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+   [Val] Step: 14250 | Val Loss: 2.6391
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.483). Clusters poorly defined.[0m
+      Step: 14300 | Train Loss: 2.3208 | LR: 1.40e-04
+      Step: 14400 | Train Loss: 2.4329 | LR: 1.34e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.53e+04).[0m
+      Step: 14500 | Train Loss: 2.5369 | LR: 1.28e-04
+      Step: 14600 | Train Loss: 2.4204 | LR: 1.22e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.43e+04).[0m
+      Step: 14700 | Train Loss: 2.4620 | LR: 1.17e-04
+      Step: 14800 | Train Loss: 2.5268 | LR: 1.11e-04
+[93m[1m[WARNING] High activation norm in fc (norm=3.51e+04).[0m
+      Step: 14900 | Train Loss: 2.5638 | LR: 1.06e-04
+   [Val] Step: 15000 | Val Loss: 2.7479
+      Step: 15000 | Train Loss: 2.4266 | LR: 1.01e-04
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.485). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=3.54e+04).[0m
+      Step: 15100 | Train Loss: 2.5742 | LR: 9.55e-05
+      Step: 15200 | Train Loss: 2.4498 | LR: 9.05e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.43e+04).[0m
+      Step: 15300 | Train Loss: 2.6765 | LR: 8.56e-05
+      Step: 15400 | Train Loss: 2.4024 | LR: 8.09e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.46e+04).[0m
+      Step: 15500 | Train Loss: 2.5503 | LR: 7.62e-05
+      Step: 15600 | Train Loss: 2.3771 | LR: 7.17e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.46e+04).[0m
+      Step: 15700 | Train Loss: 2.3806 | LR: 6.73e-05
+   [Val] Step: 15750 | Val Loss: 2.9141
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.486). Clusters poorly defined.[0m
+      Step: 15800 | Train Loss: 2.5857 | LR: 6.31e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.45e+04).[0m
+      Step: 15900 | Train Loss: 2.5128 | LR: 5.90e-05
+      Step: 16000 | Train Loss: 2.5636 | LR: 5.50e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.51e+04).[0m
+      Step: 16100 | Train Loss: 2.4442 | LR: 5.11e-05
+      Step: 16200 | Train Loss: 2.2750 | LR: 4.74e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.52e+04).[0m
+      Step: 16300 | Train Loss: 2.4475 | LR: 4.38e-05
+      Step: 16400 | Train Loss: 2.5113 | LR: 4.04e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+   [Val] Step: 16500 | Val Loss: 2.8798
+      Step: 16500 | Train Loss: 2.4054 | LR: 3.70e-05
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.490). Clusters poorly defined.[0m
+      Step: 16600 | Train Loss: 2.3265 | LR: 3.39e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+      Step: 16700 | Train Loss: 2.2920 | LR: 3.08e-05
+      Step: 16800 | Train Loss: 2.7454 | LR: 2.79e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.59e+04).[0m
+      Step: 16900 | Train Loss: 2.6086 | LR: 2.51e-05
+      Step: 17000 | Train Loss: 2.3650 | LR: 2.25e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.47e+04).[0m
+      Step: 17100 | Train Loss: 2.7875 | LR: 2.00e-05
+      Step: 17200 | Train Loss: 2.4790 | LR: 1.77e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+   [Val] Step: 17250 | Val Loss: 2.7668
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.481). Clusters poorly defined.[0m
+      Step: 17300 | Train Loss: 2.4539 | LR: 1.55e-05
+      Step: 17400 | Train Loss: 2.5831 | LR: 1.34e-05
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+      Step: 17500 | Train Loss: 2.5128 | LR: 1.15e-05
+      Step: 17600 | Train Loss: 2.3876 | LR: 9.77e-06
+[93m[1m[WARNING] High activation norm in fc (norm=3.52e+04).[0m
+      Step: 17700 | Train Loss: 2.4158 | LR: 8.15e-06
+      Step: 17800 | Train Loss: 2.4120 | LR: 6.67e-06
+[93m[1m[WARNING] High activation norm in fc (norm=3.56e+04).[0m
+      Step: 17900 | Train Loss: 2.6298 | LR: 5.34e-06
+   [Val] Step: 18000 | Val Loss: 2.7269
+      Step: 18000 | Train Loss: 2.3446 | LR: 4.16e-06
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.488). Clusters poorly defined.[0m
+[93m[1m[WARNING] High activation norm in fc (norm=3.56e+04).[0m
+      Step: 18100 | Train Loss: 2.4294 | LR: 3.13e-06
+      Step: 18200 | Train Loss: 2.5060 | LR: 2.24e-06
+[93m[1m[WARNING] High activation norm in fc (norm=3.56e+04).[0m
+      Step: 18300 | Train Loss: 2.3421 | LR: 1.50e-06
+      Step: 18400 | Train Loss: 2.5234 | LR: 9.07e-07
+[93m[1m[WARNING] High activation norm in fc (norm=3.49e+04).[0m
+      Step: 18500 | Train Loss: 2.4405 | LR: 4.63e-07
+      Step: 18600 | Train Loss: 2.4478 | LR: 1.67e-07
+[93m[1m[WARNING] High activation norm in fc (norm=3.50e+04).[0m
+      Step: 18700 | Train Loss: 2.4064 | LR: 1.85e-08
+   [Val] Step: 18750 | Val Loss: 2.7009
+[93m[1m[WARNING] High reconstruction error in lstm (RE=0.489). Clusters poorly defined.[0m
